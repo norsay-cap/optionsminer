@@ -2,8 +2,8 @@
 headless = true
 address = "0.0.0.0"
 port = 8501
-enableCORS = false
-enableXsrfProtection = true
+# CORS/XSRF must agree — leaving both at Streamlit defaults (enabled) so the
+# Coolify reverse-proxy domain works without disabling protection.
 maxUploadSize = 50
 
 [browser]
