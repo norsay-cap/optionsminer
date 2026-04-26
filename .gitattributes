@@ -1,0 +1,9 @@
+# Force LF on text files so shell scripts and Dockerfiles work in Linux containers
+* text=auto eol=lf
+
+# Binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.db   binary

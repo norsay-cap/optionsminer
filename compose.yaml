@@ -1,0 +1,46 @@
+# Reference docker-compose for Coolify (or local docker compose).
+#
+# In Coolify: pick "Docker Compose" build pack and paste this file, OR use
+# the "Dockerfile" build pack and just set Port=8501 + a persistent volume
+# at /app/data and the env vars below.
+
+services:
+  optionsminer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: optionsminer:latest
+    container_name: optionsminer
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      # Required-ish overrides
+      OPTIONSMINER_DATA_DIR: /app/data
+      OPTIONSMINER_DISK_CAP_GB: "150"
+      OPTIONSMINER_DISK_WARN_PCT: "0.80"
+
+      # Risk-free rate + dividend yields (annualised, decimal)
+      OPTIONSMINER_RISK_FREE_RATE: "0.045"
+      OPTIONSMINER_DIV_YIELD_SPY: "0.013"
+      OPTIONSMINER_DIV_YIELD_SPX: "0.013"
+
+      # Tickers — JSON list because pydantic-settings parses it
+      OPTIONSMINER_TICKERS: '["SPY","^SPX"]'
+      OPTIONSMINER_SNAPSHOT_MAX_DTE: "180"
+
+      # In-process scheduler — set true to run a daily EOD snapshot
+      # inside the container at 21:15 UTC (~ 4:15 PM ET) on weekdays
+      OPTIONSMINER_ENABLE_SCHEDULER: "true"
+      OPTIONSMINER_SCHEDULE_CRON: "15 21 * * 1-5"
+    volumes:
+      - optionsminer_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  optionsminer_data:

@@ -48,15 +48,36 @@ The app will be available at <http://localhost:8501>.
 
 ## Deployment to Coolify
 
-The repo includes a `Dockerfile` that runs the Streamlit app on port 8501. In Coolify:
+The repo includes a multi-stage `Dockerfile` and a reference `compose.yaml`.
+Two valid paths in the Coolify dashboard:
 
-1. New Resource → Public Repository → paste this repo URL
+### Path A — Dockerfile build pack (simpler)
+
+1. New Resource → Public Repository → paste `https://github.com/norsay-cap/optionsminer`
 2. Build pack: **Dockerfile**
 3. Port: `8501`
-4. Domain: `optionsminer.<yourdomain>`
-5. Persistent storage: mount a volume at `/app/data` so SQLite survives redeploys
-6. (Optional) Add an env var `OPTIONSMINER_DISK_CAP_GB=150` to enforce the disk cap
-7. (Optional) Add a scheduled task that runs `optionsminer-snapshot` daily at 4:15 PM ET to keep history flowing
+4. Domain: `optionsminer.<yourdomain>` (your wildcard DNS already covers it)
+5. Persistent storage: add a volume mount at `/app/data` (this is where SQLite lives — without it, every redeploy wipes your history)
+6. Environment variables (all optional, defaults shown):
+   ```
+   OPTIONSMINER_DISK_CAP_GB=150
+   OPTIONSMINER_DISK_WARN_PCT=0.80
+   OPTIONSMINER_RISK_FREE_RATE=0.045
+   OPTIONSMINER_TICKERS=["SPY","^SPX"]
+   OPTIONSMINER_ENABLE_SCHEDULER=true
+   OPTIONSMINER_SCHEDULE_CRON=15 21 * * 1-5
+   ```
+7. Deploy. Healthcheck (`GET /_stcore/health`) is already built into the image.
+
+### Path B — Docker Compose build pack
+
+Use `compose.yaml` as-is. Coolify reads it directly and provisions the named volume `optionsminer_data`.
+
+### Snapshot scheduling
+
+With `OPTIONSMINER_ENABLE_SCHEDULER=true`, the container runs an in-process APScheduler that calls `optionsminer-snapshot` on the configured cron. Default is `15 21 * * 1-5` UTC = ~4:15 PM ET on US trading days, after the equity options close.
+
+If you'd rather run snapshots externally, leave the scheduler off and use Coolify's scheduled-tasks feature, or `docker exec` `optionsminer-snapshot` from a host cron.
 
 ## Data source caveats
 

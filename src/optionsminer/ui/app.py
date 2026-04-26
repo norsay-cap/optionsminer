@@ -8,6 +8,8 @@ Each `pages/*.py` file shows up automatically as a sidebar nav item.
 
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from optionsminer.storage import disk_guard
@@ -32,6 +34,16 @@ st.set_page_config(
 
 # Make sure the schema exists on first run (Coolify volume might be empty)
 init_db()
+
+# Optional in-process scheduler — driven by env var so local dev doesn't run it
+if os.environ.get("OPTIONSMINER_ENABLE_SCHEDULER", "").lower() in ("1", "true", "yes"):
+    from optionsminer import scheduler as _sched
+
+    @st.cache_resource(show_spinner=False)
+    def _start_scheduler():  # noqa: ANN202
+        return _sched.start()
+
+    _start_scheduler()
 
 st.markdown(
     "# optionsminer  \n*Self-hosted options analytics for SPY/SPX.*"

@@ -1,0 +1,47 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python build / cache
+__pycache__/
+*.pyc
+.venv/
+.uv-cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+*.egg-info/
+build/
+dist/
+
+# Local data — never bake the DB into the image
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/snapshots/
+data/exports/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Local context — not for the image
+CLAUDE.md
+
+# CI / GitHub
+.github/
+
+# Tests
+tests/
