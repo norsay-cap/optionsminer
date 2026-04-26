@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=DEFAULT_DATA_DIR)
     db_filename: str = Field(default="optionsminer.db")
 
-    tickers: list[str] = Field(default_factory=lambda: ["SPY", "^SPX"])
+    tickers: list[str] = Field(default_factory=lambda: ["^SPX", "SPY"])
 
     risk_free_rate: float = Field(default=0.045, description="Annualised, decimal. SOFR proxy.")
     div_yield_spy: float = Field(default=0.013)

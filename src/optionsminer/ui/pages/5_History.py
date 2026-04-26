@@ -24,6 +24,34 @@ limit = st.sidebar.slider("Last N snapshots", 5, 500, 100)
 
 page_header(f"{ticker} · history", f"Last {limit} snapshots")
 
+with st.expander("**How to read this page**"):
+    st.markdown(
+        """
+        This page shows how the regime has been **shifting over time** — usually more
+        valuable than any single snapshot, because most signals are best read as deviations
+        from their own recent norms.
+
+        - **Spot vs Total GEX (top):** when GEX dips toward or below zero while spot is
+          rising, dealer positioning is becoming less supportive — vol expansion may be
+          coming. Conversely, GEX climbing during a chop confirms the suppression regime.
+        - **ATM IV term (middle):** watch for the **7D line crossing above the 30D line** —
+          that's a backwardation flip and historically precedes vol spikes by hours-to-days.
+        - **VRP:** when this turns *negative*, the market is under-pricing actual movement.
+          One of the highest-edge long-vol setups.
+        - **Skew:** RR25 trending down while spot is making new highs = hedges being
+          *removed* into strength → safety net thinning.
+        - **PCR:** for index PCR, **direction matters more than absolute level**. Rising into
+          a top = institutions adding hedges (typical). Falling into a top = hedges being
+          lifted (bearish — they don't need them anymore).
+
+        **Best regime-shift signals (any 2 of these together = high conviction):**
+        1. VRP turns negative
+        2. Term slope flips from positive to negative
+        3. Total GEX drops below zero
+        4. RR25 expands from already-rich levels
+        """
+    )
+
 with session_scope() as s:
     rows = s.execute(
         select(

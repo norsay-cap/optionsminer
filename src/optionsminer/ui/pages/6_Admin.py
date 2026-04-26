@@ -16,6 +16,24 @@ from optionsminer.ui.common import page_header
 st.set_page_config(page_title="Admin", layout="wide")
 page_header("Admin", "Storage, snapshots, maintenance")
 
+with st.expander("**What this page does**"):
+    st.markdown(
+        """
+        - **Storage panel:** real-time disk usage of the SQLite DB vs your configured cap
+          (default 150 GB). Auto-prune triggers when usage exceeds the cap.
+        - **By ticker:** how many snapshots you've collected per ticker, and the date range.
+        - **Manual snapshot:** force a fresh chain pull right now. Use this when you want a
+          mid-day reading (e.g. into an FOMC release or a major earnings event), or to
+          backfill a missed scheduled run.
+        - **Disk maintenance:** force a prune of the oldest snapshots if the auto-prune
+          hasn't kicked in or you want to free space proactively.
+
+        **Daily auto-snapshots** run inside the container at 21:15 UTC weekdays
+        (~4:15 PM ET) via the in-process scheduler — no manual action needed for the
+        regular cadence.
+        """
+    )
+
 rep = disk_guard.report()
 state_color = {"OK": "#00C49A", "WARN": "#FFD166", "OVER": "#FF6B6B"}[rep.state]
 

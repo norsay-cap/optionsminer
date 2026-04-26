@@ -37,6 +37,39 @@ page_header(
     f"{snap.snapshot_ts:%Y-%m-%d %H:%M UTC}",
 )
 
+with st.expander("**How to read this page**"):
+    st.markdown(
+        """
+        Each row is a strike where today's volume exceeds the configured thresholds —
+        a candidate for "someone is positioning here." The **score column** ranks candidates
+        by `vol/OI · sqrt(volume)` so big-volume, high-vol/OI hits surface first.
+
+        **What the columns mean:**
+        - `vol_oi_ratio` — today's volume divided by yesterday's OI. **>1.0** means more
+          contracts traded today than existed yesterday — strong sign of new positioning.
+        - `notional_dollars` — total $ value at the mid (price × volume × 100 multiplier).
+        - `iv` — recomputed implied vol at this strike.
+        - `score` — internal ranking (higher = more unusual).
+
+        **How to act:**
+        - **Filter to your trading horizon.** Default is DTE 7–60 to filter expiry-roll noise
+          and far-out lottery plays. Narrow if you're focused on weeklies.
+        - **A new big block at a strike you haven't seen before, combined with fresh OI build
+          the next day, is the strongest signal.** Single-snapshot UOA is noise more often
+          than signal — wait for *repeat* activity.
+        - **Cross-check against walls.** A UOA hit at a strike that's *also* a major OI wall
+          is more meaningful than one at a random strike.
+        - **Loosen the filters** if no rows pass — the defaults are conservative.
+
+        **What this dashboard CANNOT detect** (needs trade tape, not yfinance):
+        - Sweeps (single buyer hitting multiple exchanges simultaneously)
+        - Block prints (off-exchange large trades)
+        - Aggressor classification (was it a buy or a sell?)
+
+        These will be available once we swap in the Schwab broker provider.
+        """
+    )
+
 if uoa.empty:
     st.info("No rows pass the current filters. Loosen the thresholds.")
 else:
@@ -55,12 +88,7 @@ else:
         },
     )
 
-with st.expander("What this can — and can't — see"):
-    st.markdown(
-        "- yfinance gives EOD volume + OI snapshots only, so the UOA filter here is based on "
-        "  vol/OI ratios, absolute volume, notional dollars, and moneyness.\n"
-        "- **Not detectable from yfinance:** sweeps, blocks, aggressor classification — those "
-        "  need NBBO + trade tape (Polygon, Tradier, or Schwab).\n"
-        "- The **score** column ranks candidates by `vol/OI · sqrt(volume)` so big-volume, "
-        "  high-vol/OI hits surface first."
-    )
+st.caption(
+    "See the **Guide** page for the full UOA explainer and what's possible when we swap to "
+    "Schwab data."
+)

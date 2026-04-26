@@ -26,7 +26,7 @@ services:
       OPTIONSMINER_DIV_YIELD_SPX: "0.013"
 
       # Tickers — JSON list because pydantic-settings parses it
-      OPTIONSMINER_TICKERS: '["SPY","^SPX"]'
+      OPTIONSMINER_TICKERS: '["^SPX","SPY"]'
       OPTIONSMINER_SNAPSHOT_MAX_DTE: "180"
 
       # In-process scheduler — set true to run a daily EOD snapshot

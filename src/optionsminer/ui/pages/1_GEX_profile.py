@@ -34,11 +34,58 @@ page_header(
     f"Spot {snap.spot:,.2f}  ·  Total GEX {fmt_money(profile.total_gex)} per 1% spot move",
 )
 
+with st.expander("**How to read this page**"):
+    st.markdown(
+        """
+        - **Per-strike bars:** green = positive (call) gamma the dealer is long, red = negative
+          (put) gamma the dealer is short. Tall green bars above spot are **call walls**
+          (resistance); tall red bars below spot are **put walls** (support).
+        - **Yellow vertical line = current spot.** White dashed = the **zero-gamma flip** —
+          the regime line.
+        - **Flip curve:** total GEX as the spot is shifted ±10%. The crossing point with zero
+          confirms the flip level. The **slope of the curve through zero** tells you how
+          fast the regime would change — steep slope = sensitive boundary.
+        - **Sliders in the sidebar** let you cap DTE (default 60D) and exclude 0DTE (default
+          on, because yfinance OI is yesterday's stale number).
+
+        **How to act:**
+        - **Spot above flip + positive total GEX:** dealers fade rallies → range trading
+          between the walls works; sell premium.
+        - **Spot below flip + negative total GEX:** dealers chase moves → don't fade
+          extensions, momentum trades favoured.
+        - **Spot near flip:** transitional — reduce size, watch for the cross.
+        - **A wall flips colour or shifts strike materially day-over-day** → fresh OI build,
+          a strong signal something is positioning at that level.
+        """
+    )
+
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total GEX", fmt_money(profile.total_gex))
-c2.metric("Zero-gamma", fmt_strike(profile.zero_gamma))
-c3.metric("Call wall", fmt_strike(profile.call_wall))
-c4.metric("Put wall", fmt_strike(profile.put_wall))
+c1.metric(
+    "Total GEX",
+    fmt_money(profile.total_gex),
+    help="Sum of $-gamma · OI across all strikes (per 1% spot move). "
+    "Positive = vol suppression; Negative = vol expansion.",
+)
+c2.metric(
+    "Zero-gamma",
+    fmt_strike(profile.zero_gamma),
+    delta=(
+        f"{(profile.zero_gamma - snap.spot):+.2f}"
+        if profile.zero_gamma is not None else None
+    ),
+    help="Spot level where total GEX = 0 — the regime line. "
+    "The delta number shows distance from current spot.",
+)
+c3.metric(
+    "Call wall",
+    fmt_strike(profile.call_wall),
+    help="Strike above spot with the largest +GEX. Acts as resistance — dealers must sell delta as price approaches.",
+)
+c4.metric(
+    "Put wall",
+    fmt_strike(profile.put_wall),
+    help="Strike below spot with the largest −GEX. Acts as support — dealers must buy delta as price approaches.",
+)
 
 # By-strike bar chart, banded
 band_lo, band_hi = snap.spot * (1 - band_pct), snap.spot * (1 + band_pct)
@@ -87,13 +134,9 @@ flip.update_layout(
 )
 st.plotly_chart(flip, width='stretch')
 
-with st.expander("Notes"):
-    st.markdown(
-        "- **Positive GEX** → dealers long gamma → sell rallies, buy dips → vol suppression.\n"
-        "- **Below zero-gamma** → dealers short gamma → chase moves → vol expansion.\n"
-        "- The flip curve uses snapshot IVs frozen as spot is shifted (the standard practitioner "
-        "  shortcut — re-solving IV per shifted spot is too slow and adds little for short-horizon "
-        "  what-ifs).\n"
-        "- 0DTE is excluded by default because yfinance OI is yesterday's close, which "
-        "  meaningfully distorts intraday 0DTE GEX."
-    )
+st.caption(
+    "Methodology note: the flip curve uses snapshot IVs frozen as spot is shifted (the "
+    "standard practitioner shortcut). 0DTE is excluded by default because yfinance OI is "
+    "yesterday's close, which would distort intraday 0DTE GEX. See the **Guide** page for the "
+    "full GEX explainer."
+)

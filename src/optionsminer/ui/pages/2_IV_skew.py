@@ -24,15 +24,56 @@ page_header(
     f"Spot {snap.spot:,.2f}  ·  Snapshot {snap.snapshot_ts:%Y-%m-%d %H:%M UTC}",
 )
 
-if sk is None:
-    st.warning("Insufficient IV data for the chosen ticker/expiry.")
-    st.stop()
+with st.expander("**How to read this page**"):
+    st.markdown(
+        """
+        **Smile chart** (left): IV by strike for the chosen expiry. The "smile" or "smirk"
+        shape reflects fear of crashes (left side higher = put skew). The two horizontal
+        dotted lines show IV at the 25-delta call and 25-delta put — their **difference is
+        the Risk Reversal** above.
+
+        **Term structure** (right): ATM IV across all expiries. The shape tells you how the
+        market expects vol to evolve.
+        - **Upward slope (contango):** normal — far-dated vol higher than near. Above +5% =
+          complacency.
+        - **Downward slope (backwardation):** stress — front-end bid above 30D. Historically
+          the strongest VRP edge for long-vol setups.
+
+        **Trading takeaways:**
+        - **Steep put skew + low ATM IV** = "crash hedged, drift up." Favours selling puts /
+          call spreads / outright calls.
+        - **Skew flattening during a selloff** = capitulation; puts no longer bid. Usually
+          near a tradeable bottom.
+        - **Skew expanding while market is calm** = something is being aggressively hedged.
+          Watch for the catalyst.
+        - Compare today's RR25 to its history (use the **History** page) — absolute thresholds
+          are misleading because skew has structurally compressed since 2023.
+        """
+    )
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("ATM IV", fmt_vol(sk.atm_iv))
-c2.metric("25Δ Risk Reversal", fmt_vol(sk.rr_25d))
-c3.metric("Skew 90/110", fmt_vol(sk.skew_90_110))
-c4.metric("Used DTE", f"{sk.expiry_dte}D")
+c1.metric(
+    "ATM IV",
+    fmt_vol(sk.atm_iv),
+    help="At-the-money implied vol for the selected expiry. The market's price of vol at this tenor.",
+)
+c2.metric(
+    "25Δ Risk Reversal",
+    fmt_vol(sk.rr_25d),
+    help="IV(25Δ put) − IV(25Δ call). Positive = put skew = crash hedged. "
+    "Modern SPX range ~4–8 vol pts.",
+)
+c3.metric(
+    "Skew 90/110",
+    fmt_vol(sk.skew_90_110),
+    help="IV(K=0.9·spot) − IV(K=1.1·spot). Same direction as RR25 but moneyness-anchored — "
+    "cleaner read on short-dated.",
+)
+c4.metric(
+    "Used DTE",
+    f"{sk.expiry_dte}D",
+    help="The expiry actually selected (closest available to your slider target).",
+)
 
 # Smile chart
 left, right = st.columns(2)
@@ -73,11 +114,6 @@ with right:
         )
         st.plotly_chart(fig2, width='stretch')
 
-with st.expander("Notes"):
-    st.markdown(
-        "- **Positive RR25** = puts richer than calls = put skew = crash hedged.\n"
-        "- **Skew 90/110** is moneyness-based — cleaner than delta on weekly expiries.\n"
-        "- **Backwardated term** (7D > 30D, slope < 0) is the strongest historical edge for VRP.\n"
-        "- Absolute skew levels are structurally lower since 2023 due to overwriter-ETF supply "
-        "  (JEPI/JEPQ/SPYI). Use rolling z-scores in History rather than absolute thresholds."
-    )
+st.caption(
+    "See the **Guide** page for the full skew + term-structure explainer."
+)
