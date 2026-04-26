@@ -19,8 +19,20 @@ from optionsminer.ui.common import page_header
 
 st.set_page_config(page_title="History", layout="wide")
 st.sidebar.markdown("### Snapshot")
-ticker = st.sidebar.selectbox("Ticker", options=settings.tickers, index=0)
-limit = st.sidebar.slider("Last N snapshots", 5, 500, 100)
+
+# Share the ticker selection with the rest of the dashboard via session state.
+default_ticker = "^SPX" if "^SPX" in settings.tickers else settings.tickers[0]
+if "om_ticker" not in st.session_state:
+    st.session_state["om_ticker"] = default_ticker
+elif st.session_state["om_ticker"] not in settings.tickers:
+    st.session_state["om_ticker"] = default_ticker
+
+ticker = st.sidebar.selectbox(
+    "Ticker",
+    options=settings.tickers,
+    key="om_ticker",
+)
+limit = st.sidebar.slider("Last N snapshots", 5, 500, 100, key="om_history_limit")
 
 page_header(f"{ticker} · history", f"Last {limit} snapshots")
 

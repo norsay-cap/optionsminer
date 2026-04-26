@@ -18,16 +18,47 @@ def page_header(title: str, subtitle: str | None = None) -> None:
 
 
 def sidebar_picker() -> tuple[str, Snapshot | None]:
-    """Render ticker + snapshot pickers. Returns (ticker, chosen Snapshot)."""
+    """Render ticker + snapshot pickers. Returns (ticker, chosen Snapshot).
+
+    Selections persist across page navigation via st.session_state. They reset
+    on browser tab close / hard refresh — typical desired UX. The ticker key
+    `om_ticker` is shared with the History page so the choice carries over.
+    """
     st.sidebar.markdown("### Snapshot")
-    ticker = st.sidebar.selectbox("Ticker", options=settings.tickers, index=0)
+
+    # Hard-prefer SPX as the initial default regardless of env-var order.
+    default_ticker = "^SPX" if "^SPX" in settings.tickers else settings.tickers[0]
+    if "om_ticker" not in st.session_state:
+        st.session_state["om_ticker"] = default_ticker
+    elif st.session_state["om_ticker"] not in settings.tickers:
+        # Configured tickers changed — reset to default
+        st.session_state["om_ticker"] = default_ticker
+
+    ticker = st.sidebar.selectbox(
+        "Ticker",
+        options=settings.tickers,
+        key="om_ticker",
+    )
+
     snaps = list_snapshots(ticker, limit=200)
     if not snaps:
-        st.sidebar.warning(f"No snapshots for {ticker}. Run `optionsminer-snapshot`.")
+        st.sidebar.warning(f"No snapshots for {ticker}. Take one from the Admin page.")
         return ticker, None
+
     labels = [f"{s.snapshot_ts:%Y-%m-%d %H:%M}  ·  spot {s.spot:.2f}" for s in snaps]
+
+    # Per-ticker key so the date selection survives navigation but doesn't
+    # collide across tickers (different snapshot lists, different lengths).
+    # Clamp if a prune dropped the previously selected snapshot.
+    snap_key = f"om_snap_{ticker}"
+    if snap_key in st.session_state and st.session_state[snap_key] >= len(snaps):
+        st.session_state[snap_key] = 0
+
     idx = st.sidebar.selectbox(
-        "Date", options=list(range(len(labels))), format_func=lambda i: labels[i], index=0
+        "Date",
+        options=list(range(len(labels))),
+        format_func=lambda i: labels[i],
+        key=snap_key,
     )
     return ticker, snaps[idx]
 
