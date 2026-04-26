@@ -164,16 +164,15 @@ def persist_bars(ticker: str, bars: pd.DataFrame) -> int:
 
 
 def run_snapshot(provider: DataProvider, ticker: str) -> dict:
-    """End-to-end: fetch chain, enrich, persist, return summary."""
+    """End-to-end: fetch chain, enrich, persist, derive metrics, return summary."""
     snap = provider.fetch_chain(ticker, max_dte=settings.snapshot_max_dte)
     enriched = enrich_with_greeks(
         snap,
         r=settings.risk_free_rate,
         q=settings.div_yield_for(ticker),
     )
-    sid = persist_snapshot(snap, enriched, source=provider.name)
 
-    # Pull last 60 days of bars to keep RV computations fresh
+    # Bars first — VRP needs them; pull before metrics computation
     start = (snap.snapshot_ts.date() - timedelta(days=90))
     try:
         bars = provider.fetch_underlying_history(ticker, start=start)
@@ -182,12 +181,25 @@ def run_snapshot(provider: DataProvider, ticker: str) -> dict:
         log.warning("Underlying history fetch failed for %s: %s", ticker, e)
         n_bars = 0
 
+    sid = persist_snapshot(snap, enriched, source=provider.name)
+
+    # Auto-compute and store the DerivedMetrics row
+    try:
+        from optionsminer.analytics.compute import compute_and_store
+
+        compute_and_store(sid)
+        n_metrics = 1
+    except Exception as e:  # noqa: BLE001
+        log.exception("Metrics computation failed for snapshot %s: %s", sid, e)
+        n_metrics = 0
+
     return {
         "snapshot_id": sid,
         "ticker": ticker,
         "spot": snap.spot,
         "n_quotes": len(enriched),
         "n_bars_upserted": n_bars,
+        "metrics_written": n_metrics,
     }
 
 

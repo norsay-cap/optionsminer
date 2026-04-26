@@ -57,7 +57,8 @@ def snapshot() -> None:
             res = run_snapshot(provider, tk)
             print(
                 f"[{tk}] snapshot_id={res['snapshot_id']} spot={res['spot']:.2f} "
-                f"quotes={res['n_quotes']} bars_upserted={res['n_bars_upserted']}"
+                f"quotes={res['n_quotes']} bars={res['n_bars_upserted']} "
+                f"metrics={res['metrics_written']}"
             )
         except Exception as e:  # noqa: BLE001
             logging.exception("Snapshot failed for %s", tk)
