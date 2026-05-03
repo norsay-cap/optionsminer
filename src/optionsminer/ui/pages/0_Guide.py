@@ -272,6 +272,36 @@ with st.expander("**Unusual Options Activity (UOA)**"):
         """
     )
 
+with st.expander("**DT15 daily range (ES futures)**"):
+    st.markdown(
+        f"""
+        **What it is.** A predictive estimate of today's intraday range for ES futures,
+        derived from a blend of recent realised range and the VIX-implied move. Projects
+        four anchored levels around the session open: **avg+**, **avg−**, **ext+**, **ext−**.
+
+        **Computation.**
+        - `RM5` = simple 5-day average of daily High − Low.
+        - `range_vix` = `K_BM · σ_VIX · prior_close`, where `K_BM = √(8/π)` is the Brownian-
+          motion expected absolute move and `σ_VIX = (VIX/100)/√252` is per-day vol.
+        - `range_pred = max(RM5, 0.60 · range_vix)` — realised dominates unless VIX is bid.
+        - `avg± = O_t ± 0.5 · range_pred`
+        - `ext+ = O_t + 0.5 · range_pred · 2.27`
+        - `ext− = O_t − 0.5 · range_pred · 2.97` (asymmetric — downside fatter, locked from study)
+
+        **Anchor.** Defaults to yfinance's daily Open (= 6 PM ET ETH session start).
+        Override with the actual 9:30 AM ET RTH first-trade for a tighter intraday read.
+
+        **How to act.**
+        - **avg+/avg−** are initial reaction targets — common turn levels in a normal session.
+        - **ext+/ext−** are extension targets — *reaching them is a trend-day signal*. Fade
+          with care; the market is in expansion mode.
+        - **range_pred well below RM5** = market quieter than recent average. Confluence with
+          high VRP (rich premium) = good iron-condor day.
+        - **range_pred dominated by the VIX side** = market pricing more vol than has
+          materialised. Watch for catch-up.
+        """
+    )
+
 with st.expander("**Greeks (delta, gamma, vega, theta, charm, vanna)**"):
     st.markdown(
         """
