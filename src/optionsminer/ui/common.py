@@ -22,6 +22,34 @@ def page_header(title: str, subtitle: str | None = None) -> None:
 # page transitions, but plain session_state keys we manage ourselves
 # survive consistently.
 _TICKER_KEY = "_om_ticker_persistent"
+_DT15_VARIANT_KEY = "_om_dt15_variant_persistent"
+
+DT15_VARIANT_LABELS = {
+    "baseline": "Baseline (static M)",
+    "enh_b": "Enhancement B (PDV-adjusted, R1-dynamic M)",
+}
+
+
+def dt15_variant_picker(label: str = "DT15 methodology") -> str:
+    """Persistent radio for DT15 methodology, shared across both DT15 pages.
+
+    Default is 'enh_b' (the recommended variant per the user's study notes).
+    Returns 'baseline' or 'enh_b'.
+    """
+    valid = list(DT15_VARIANT_LABELS.keys())
+    current = st.session_state.get(_DT15_VARIANT_KEY, "enh_b")
+    if current not in valid:
+        current = "enh_b"
+
+    chosen_label = st.radio(
+        label,
+        options=valid,
+        format_func=lambda v: DT15_VARIANT_LABELS[v],
+        index=valid.index(current),
+        horizontal=True,
+    )
+    st.session_state[_DT15_VARIANT_KEY] = chosen_label
+    return chosen_label
 
 
 def _persistent_ticker() -> str:
@@ -125,6 +153,8 @@ __all__ = [
     "page_header",
     "sidebar_picker",
     "ticker_selectbox",
+    "dt15_variant_picker",
+    "DT15_VARIANT_LABELS",
     "get_metrics",
     "cached_chain",
     "fmt_money",

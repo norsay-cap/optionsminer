@@ -47,15 +47,22 @@ def _job() -> None:
         except Exception as e:  # noqa: BLE001
             log.exception("Snapshot FAIL for %s: %s", tk, e)
 
-    # Record today's DT15 prediction and settle any prior unsettled rows
+    # Record today's DT15 prediction for BOTH methodologies and settle any
+    # prior unsettled rows. Storing both side-by-side enables the
+    # head-to-head backtest comparison in the dashboard.
     try:
-        from optionsminer.analytics.dt15 import compute_live
+        from optionsminer.analytics.dt15 import VARIANTS, compute_live
         from optionsminer.storage import dt15_storage
 
-        lv = compute_live()
-        dt15_storage.record_prediction(lv)
+        for variant in VARIANTS:
+            try:
+                lv = compute_live(variant=variant)
+                dt15_storage.record_prediction(lv)
+                log.info("DT15 (%s): recorded prediction for %s", variant, lv.asof_date)
+            except Exception as e:  # noqa: BLE001
+                log.exception("DT15 record FAIL for variant %s: %s", variant, e)
         n_settled = dt15_storage.settle_pending()
-        log.info("DT15: recorded prediction for %s, settled %d prior", lv.asof_date, n_settled)
+        log.info("DT15: settled %d prior rows across all variants", n_settled)
     except Exception as e:  # noqa: BLE001
         log.exception("DT15 scheduled record/settle FAIL: %s", e)
 

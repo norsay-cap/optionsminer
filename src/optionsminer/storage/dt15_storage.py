@@ -1,14 +1,18 @@
 """Persistence + statistics for DT15 daily-range predictions.
 
+Two methodologies are tracked side-by-side per day via the composite PK
+(pred_date, variant). All read/write functions take an optional `variant`
+arg so the dashboard can filter and the scheduler can record both.
+
 Lifecycle:
-1. `record_prediction(levels)` — write today's prediction row (UPSERT on
-   pred_date so a later override-anchor lock replaces the auto-recorded
-   yfinance-anchor version).
-2. `settle_pending(asof=today)` — for every prediction whose pred_date is in
-   the past and whose `settled_at` is NULL, fetch ES=F's actual O/H/L/C for
-   that date and fill the outcome + hit-flag columns.
-3. `summary()`, `recent(n)`, `to_dataframe()` — read-side helpers used by
-   the Backtest page.
+1. `record_prediction(levels)` — UPSERTs on (pred_date, variant). Variant
+   comes from the DT15Levels object.
+2. `settle_pending(asof, lookback_days, variant=None)` — for every
+   unsettled prediction whose pred_date is in the past, fetches ES=F's
+   actual O/H/L/C for that date and fills outcome + hit-flag columns.
+   Variant filter optional; default settles everything.
+3. Read helpers (`summary`, `to_dataframe`, `recent`) take optional
+   variant arg to filter.
 """
 
 from __future__ import annotations
@@ -18,9 +22,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 import pandas as pd
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-from optionsminer.analytics.dt15 import K_BM, M_DN, M_UP, VIX_BLEND_K, DT15Levels, fetch_daily_bars
+from optionsminer.analytics.dt15 import DT15Levels, fetch_daily_bars
 from optionsminer.storage.db import session_scope
 from optionsminer.storage.models import DT15Prediction
 
@@ -29,31 +33,31 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DT15Summary:
+    variant: str
     n_total: int
     n_settled: int
-    in_band_rate: float | None       # P(low >= avg- AND high <= avg+)
+    in_band_rate: float | None
     above_avg_plus_rate: float | None
     below_avg_minus_rate: float | None
     touched_ext_plus_rate: float | None
     touched_ext_minus_rate: float | None
-    range_mae: float | None          # mean absolute error (points)
-    range_mape: float | None         # mean absolute percentage error
-    range_bias: float | None         # mean signed error (positive = under-predicting)
-    range_correlation: float | None  # Pearson correlation of pred vs actual range
+    range_mae: float | None
+    range_mape: float | None
+    range_bias: float | None
+    range_correlation: float | None
 
 
 def record_prediction(levels: DT15Levels) -> DT15Prediction:
-    """UPSERT today's prediction. Only the prediction columns are touched —
-    if a row already exists with realised outcomes, those are preserved.
-    """
-    pred_source = "rm5" if levels.rm5 >= VIX_BLEND_K * levels.range_vix else "vix"
+    """UPSERT today's prediction. Preserves any already-settled outcome."""
+    pred_source = "rm5" if levels.rm5 >= 0.60 * levels.range_vix else "vix"
     now = datetime.utcnow().replace(tzinfo=None)
 
     with session_scope() as s:
-        row = s.get(DT15Prediction, levels.asof_date)
+        row = s.get(DT15Prediction, (levels.asof_date, levels.variant))
         if row is None:
             row = DT15Prediction(
                 pred_date=levels.asof_date,
+                variant=levels.variant,
                 today_open_yf=levels.today_open_yf,
                 today_open_used=levels.today_open_used,
                 anchor_source=levels.anchor_source,
@@ -63,6 +67,10 @@ def record_prediction(levels: DT15Levels) -> DT15Prediction:
                 range_vix=levels.range_vix,
                 range_pred=levels.range_pred,
                 pred_source=pred_source,
+                m_up_used=levels.m_up_used,
+                m_dn_used=levels.m_dn_used,
+                r1=levels.r1,
+                r1_normalized=levels.r1_normalized,
                 avg_plus=levels.avg_plus,
                 avg_minus=levels.avg_minus,
                 ext_plus=levels.ext_plus,
@@ -71,7 +79,6 @@ def record_prediction(levels: DT15Levels) -> DT15Prediction:
             )
             s.add(row)
         else:
-            # Only update prediction fields; never overwrite realised outcome
             row.today_open_yf = levels.today_open_yf
             row.today_open_used = levels.today_open_used
             row.anchor_source = levels.anchor_source
@@ -81,6 +88,10 @@ def record_prediction(levels: DT15Levels) -> DT15Prediction:
             row.range_vix = levels.range_vix
             row.range_pred = levels.range_pred
             row.pred_source = pred_source
+            row.m_up_used = levels.m_up_used
+            row.m_dn_used = levels.m_dn_used
+            row.r1 = levels.r1
+            row.r1_normalized = levels.r1_normalized
             row.avg_plus = levels.avg_plus
             row.avg_minus = levels.avg_minus
             row.ext_plus = levels.ext_plus
@@ -91,7 +102,6 @@ def record_prediction(levels: DT15Levels) -> DT15Prediction:
 
 
 def _settle_one(row: DT15Prediction, bar: pd.Series) -> None:
-    """Fill outcome + hit-flag columns on a row using the realised daily bar."""
     o, h, l, c = float(bar["Open"]), float(bar["High"]), float(bar["Low"]), float(bar["Close"])
     rng = h - l
     err = rng - row.range_pred
@@ -103,7 +113,6 @@ def _settle_one(row: DT15Prediction, bar: pd.Series) -> None:
     row.actual_range = rng
     row.range_error = err
     row.range_error_pct = err / row.range_pred if row.range_pred else None
-
     row.high_above_avg_plus = 1 if h > row.avg_plus else 0
     row.low_below_avg_minus = 1 if l < row.avg_minus else 0
     row.inside_avg_band = 1 if (h <= row.avg_plus and l >= row.avg_minus) else 0
@@ -112,27 +121,24 @@ def _settle_one(row: DT15Prediction, bar: pd.Series) -> None:
     row.settled_at = datetime.utcnow().replace(tzinfo=None)
 
 
-def settle_pending(asof: date | None = None, lookback_days: int = 60) -> int:
-    """Settle every unsettled prediction whose pred_date < asof.
-
-    `lookback_days` bounds how far back we'll look for unsettled rows — keeps
-    the yfinance pull cheap. For a daily scheduler this is plenty.
-
-    Returns number of rows settled.
-    """
+def settle_pending(
+    asof: date | None = None,
+    lookback_days: int = 60,
+    variant: str | None = None,
+) -> int:
+    """Settle every unsettled prediction whose pred_date < asof."""
     asof = asof or date.today()
     cutoff = asof - timedelta(days=lookback_days)
 
     with session_scope() as s:
-        pending = list(
-            s.scalars(
-                select(DT15Prediction).where(
-                    DT15Prediction.settled_at.is_(None),
-                    DT15Prediction.pred_date < asof,
-                    DT15Prediction.pred_date >= cutoff,
-                )
-            )
+        q = select(DT15Prediction).where(
+            DT15Prediction.settled_at.is_(None),
+            DT15Prediction.pred_date < asof,
+            DT15Prediction.pred_date >= cutoff,
         )
+        if variant is not None:
+            q = q.where(DT15Prediction.variant == variant)
+        pending = list(s.scalars(q))
         if not pending:
             return 0
 
@@ -142,23 +148,22 @@ def settle_pending(asof: date | None = None, lookback_days: int = 60) -> int:
             log.warning("DT15 settlement: ES=F fetch failed: %s", e)
             return 0
 
-        # Index by date for O(1) lookup
         es_idx = {idx.date() if hasattr(idx, "date") else idx: row for idx, row in es.iterrows()}
 
         n = 0
         for p in pending:
             bar = es_idx.get(p.pred_date)
             if bar is None:
-                continue  # market holiday or data gap
+                continue
             _settle_one(p, bar)
             n += 1
         return n
 
 
-def summary(min_date: date | None = None) -> DT15Summary:
-    """Aggregate hit-rate / error stats over all settled predictions."""
+def summary(min_date: date | None = None, variant: str = "baseline") -> DT15Summary:
+    """Aggregate stats for a single variant. Pass variant explicitly."""
     with session_scope() as s:
-        q = select(DT15Prediction)
+        q = select(DT15Prediction).where(DT15Prediction.variant == variant)
         if min_date is not None:
             q = q.where(DT15Prediction.pred_date >= min_date)
         rows = list(s.scalars(q))
@@ -182,13 +187,13 @@ def summary(min_date: date | None = None) -> DT15Summary:
 
     corr = None
     if len(pred) >= 3:
-        ser_p, ser_a = pd.Series(pred), pd.Series(actual)
         try:
-            corr = float(ser_p.corr(ser_a))
+            corr = float(pd.Series(pred).corr(pd.Series(actual)))
         except Exception:  # noqa: BLE001
             corr = None
 
     return DT15Summary(
+        variant=variant,
         n_total=n_total,
         n_settled=n_settled,
         in_band_rate=_rate("inside_avg_band"),
@@ -203,22 +208,20 @@ def summary(min_date: date | None = None) -> DT15Summary:
     )
 
 
-def to_dataframe(limit: int = 500) -> pd.DataFrame:
-    """All predictions (settled + pending), most-recent first, as a DataFrame."""
+def to_dataframe(limit: int = 500, variant: str | None = None) -> pd.DataFrame:
+    """All predictions, most-recent first. Optionally filter by variant."""
     with session_scope() as s:
-        rows = list(
-            s.scalars(
-                select(DT15Prediction)
-                .order_by(DT15Prediction.pred_date.desc())
-                .limit(limit)
-            )
-        )
+        q = select(DT15Prediction).order_by(DT15Prediction.pred_date.desc()).limit(limit)
+        if variant is not None:
+            q = q.where(DT15Prediction.variant == variant)
+        rows = list(s.scalars(q))
     if not rows:
         return pd.DataFrame()
 
     return pd.DataFrame([
         {
             "pred_date": r.pred_date,
+            "variant": r.variant,
             "anchor_source": r.anchor_source,
             "anchor": r.today_open_used,
             "prior_close": r.prior_close,
@@ -227,6 +230,10 @@ def to_dataframe(limit: int = 500) -> pd.DataFrame:
             "range_vix": r.range_vix,
             "range_pred": r.range_pred,
             "pred_source": r.pred_source,
+            "m_up_used": r.m_up_used,
+            "m_dn_used": r.m_dn_used,
+            "r1": r.r1,
+            "r1_normalized": r.r1_normalized,
             "avg_plus": r.avg_plus,
             "avg_minus": r.avg_minus,
             "ext_plus": r.ext_plus,
@@ -249,50 +256,54 @@ def to_dataframe(limit: int = 500) -> pd.DataFrame:
     ])
 
 
-def backfill_from_history(days: int = 60) -> int:
-    """Reconstruct historical predictions from yfinance ES + VIX history.
+def backfill_from_history(days: int = 60, variant: str = "baseline") -> int:
+    """Reconstruct predictions for the last N trading days using only prior data.
 
-    For each of the last `days` trading days, recompute what DT15 *would have
-    predicted* using only data available before that day, then settle against
-    the actual outcome. Lets you bootstrap a backtest without waiting weeks
-    for live data to accumulate.
-
-    Returns number of historical days inserted.
+    Args:
+        days: how many trading days back to seed.
+        variant: 'baseline' or 'enh_b'.
     """
-    es = fetch_daily_bars("ES=F", period=f"{days + 30}d")
-    vix = fetch_daily_bars("^VIX", period=f"{days + 30}d")
+    from optionsminer.analytics.dt15 import TSPL_NLAGS, compute_levels
+
+    # Enh-B needs 250 days of prior returns PER ROW. For N target days we need
+    # ~(N + 250 + buffer) trading days. yfinance period is in CALENDAR days
+    # (~252/365 ratio), so multiply by ~1.45. Safest: pull 2y for enh_b which
+    # gives ~504 trading days, plenty for any reasonable backfill window.
+    if variant == "enh_b":
+        es_period = "2y"
+        vix_period = "2y"
+    else:
+        es_period = f"{days + 30}d"
+        vix_period = f"{days + 30}d"
+    es = fetch_daily_bars("ES=F", period=es_period)
+    vix = fetch_daily_bars("^VIX", period=vix_period)
 
     if isinstance(es.columns, pd.MultiIndex):
         es.columns = es.columns.get_level_values(0)
     if isinstance(vix.columns, pd.MultiIndex):
         vix.columns = vix.columns.get_level_values(0)
 
-    if len(es) < 7:
+    needed_history = TSPL_NLAGS + 7 if variant == "enh_b" else 7
+    if len(es) < needed_history:
         return 0
 
-    # For each "today" we need at least 7 trading days of prior data
     inserted = 0
     es_dates = list(es.index)
-    target_dates = es_dates[-days:] if len(es_dates) > days else es_dates[6:]
+    target_dates = es_dates[-days:] if len(es_dates) > days else es_dates[needed_history:]
 
     for current in target_dates:
-        # Slice: everything up to and including `current`
         es_window = es.loc[:current]
         vix_window = vix.loc[:current]
-        if len(es_window) < 7:
+        if len(es_window) < needed_history:
             continue
 
         try:
-            from optionsminer.analytics.dt15 import compute_levels
-
-            lv = compute_levels(es_window, vix_window, today_open_override=None)
+            lv = compute_levels(es_window, vix_window, today_open_override=None, variant=variant)
         except ValueError:
             continue
 
-        # Persist
         record_prediction(lv)
         inserted += 1
 
-    # One settlement pass to fill outcomes for all the days we just backfilled
-    settle_pending()
+    settle_pending(variant=variant)
     return inserted

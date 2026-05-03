@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from optionsminer.config import settings
 from optionsminer.storage.models import Base
+
+log = logging.getLogger(__name__)
 
 
 def _make_engine() -> Engine:
@@ -38,9 +42,38 @@ engine: Engine = _make_engine()
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
+def _migrate_dt15_to_variant_pk() -> None:
+    """One-time migration: dt15_predictions PK changed from `pred_date` to
+    `(pred_date, variant)` and gained M_up/M_dn/R1 columns.
+
+    SQLite can't ALTER PRIMARY KEY in place, so we rename the old table out
+    of the way and let create_all() build the new one. The user re-runs the
+    backfill (which is fast — ~10 sec for 60 days). Old rows are preserved
+    under a timestamped suffix in case anyone wants to inspect them.
+    """
+    insp = inspect(engine)
+    if "dt15_predictions" not in insp.get_table_names():
+        return  # fresh install, nothing to migrate
+    cols = {c["name"] for c in insp.get_columns("dt15_predictions")}
+    if "variant" in cols:
+        return  # already migrated
+
+    suffix = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    legacy_name = f"dt15_predictions_legacy_{suffix}"
+    with engine.begin() as conn:
+        conn.exec_driver_sql(f"ALTER TABLE dt15_predictions RENAME TO {legacy_name}")
+    log.warning(
+        "Migrated dt15_predictions: old single-PK table renamed to %s. "
+        "Re-run the DT15 Backtest 'Backfill last N days' to repopulate "
+        "with the new (pred_date, variant) schema.",
+        legacy_name,
+    )
+
+
 def init_db() -> None:
-    """Create all tables. Idempotent."""
+    """Create all tables. Idempotent. Runs in-place migrations as needed."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    _migrate_dt15_to_variant_pk()
     Base.metadata.create_all(engine)
 
 

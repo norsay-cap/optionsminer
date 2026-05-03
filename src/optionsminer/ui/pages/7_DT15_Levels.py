@@ -14,6 +14,7 @@ import streamlit as st
 from optionsminer.analytics import dt15
 from optionsminer.storage import dt15_storage
 from optionsminer.storage.db import init_db
+from optionsminer.ui.common import DT15_VARIANT_LABELS, dt15_variant_picker
 
 init_db()
 
@@ -28,6 +29,17 @@ st.info(
     "**Note:** the avg± / ext± bands are projected **symmetrically around the open**. "
     "On trending days, expect the actual H/L to bias in the direction of the trend — "
     "the band is a width estimate, not a directional forecast."
+)
+
+variant = dt15_variant_picker()
+st.caption(
+    f"Methodology: **{DT15_VARIANT_LABELS[variant]}** · "
+    + (
+        "M_up=2.27, M_dn=2.97 (locked static)."
+        if variant == "baseline"
+        else "M_up/M_dn widened from a tighter base by an R1-driven path indicator "
+        "(positive R1 widens upside, negative R1 widens downside)."
+    )
 )
 
 with st.expander("**How to read this page**"):
@@ -109,15 +121,15 @@ with col_b:
 # Compute
 override_arg = float(override_value) if (use_override and override_value > 0) else None
 try:
-    with st.spinner("Pulling ES=F + ^VIX from yfinance…"):
-        lv = dt15.compute_live(today_open_override=override_arg)
+    with st.spinner(f"Pulling ES=F + ^VIX from yfinance ({variant})…"):
+        lv = dt15.compute_live(today_open_override=override_arg, variant=variant)
 except Exception as e:  # noqa: BLE001
     st.error(f"DT15 computation failed: {e}")
     st.stop()
 
-# Persistence: auto-record the yfinance-anchored prediction once per day, and
-# settle any pending older predictions while we're here. The override version
-# is only persisted when the user explicitly clicks "Lock prediction" below.
+# Persistence: auto-record the yfinance-anchored prediction once per day per
+# variant. The override version is only persisted when the user clicks
+# "Lock prediction" below.
 if not use_override:
     try:
         dt15_storage.record_prediction(lv)
@@ -161,6 +173,37 @@ c4.metric(
     delta=(f"{lv.today_open_used - lv.today_open_yf:+,.2f} vs yf"
            if lv.anchor_source == "override" else None),
     help="The O_t price that all four levels are projected from.",
+)
+
+# Variant-specific M / R1 row
+m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+m_c1.metric(
+    "M_up used",
+    f"{lv.m_up_used:.3f}",
+    delta=(f"vs baseline {dt15.M_UP_BASELINE:.2f}"
+           if variant == "enh_b" else None),
+    help="Upside-extension multiplier. Baseline locks at 2.27; Enhancement B "
+    "starts at 1.87 and widens proportionally to positive R1 (recent up-trend).",
+)
+m_c2.metric(
+    "M_dn used",
+    f"{lv.m_dn_used:.3f}",
+    delta=(f"vs baseline {dt15.M_DN_BASELINE:.2f}"
+           if variant == "enh_b" else None),
+    help="Downside-extension multiplier. Baseline locks at 2.97; Enhancement B "
+    "starts at 2.57 and widens proportionally to negative R1 (recent down-trend).",
+)
+m_c3.metric(
+    "R1 (raw)",
+    f"{lv.r1:.5f}" if lv.r1 is not None else "—",
+    help="TSPL-weighted sum of the past 250 daily log returns. Positive = recent "
+    "up-trend, negative = recent down-trend. Only computed for Enhancement B.",
+)
+m_c4.metric(
+    "R1 (σ-normalised)",
+    f"{lv.r1_normalized:+.2f}σ" if lv.r1_normalized is not None else "—",
+    help="R1 divided by σ_R1 (≈0.00142). |value| > 1 means the path indicator is "
+    "more than 1 std-dev away from zero, which materially widens the relevant side.",
 )
 
 if use_override and override_value > 0:

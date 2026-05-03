@@ -1,14 +1,17 @@
-"""DT15 backtest — calibration + hit-rate stats over the recorded predictions."""
+"""DT15 backtest — calibration + hit-rate stats per methodology, plus a
+head-to-head comparison view of baseline vs Enhancement B (PDV-adjusted).
+"""
 
 from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
+from optionsminer.analytics import dt15
 from optionsminer.storage import dt15_storage
 from optionsminer.storage.db import init_db
+from optionsminer.ui.common import DT15_VARIANT_LABELS, dt15_variant_picker
 
 st.set_page_config(page_title="DT15 backtest", layout="wide")
 init_db()
@@ -18,56 +21,78 @@ st.markdown("## DT15 backtest — prediction vs realised")
 with st.expander("**How to read this page**"):
     st.markdown(
         """
-        DT15 predictions are recorded automatically every time the **DT15 levels** page is
-        opened (one row per day). The next time the page loads, any past-dated prediction
-        is **settled** against the actual ES daily High/Low/Close.
+        Two methodologies are stored side-by-side:
+
+        - **Baseline** — locked static M_up=2.27, M_dn=2.97. Original DT15 spec.
+        - **Enhancement B (PDV-adjusted)** — tightened static base (1.87 / 2.57)
+          plus an R1-driven dynamic widening term derived from a TSPL-weighted
+          sum of the past 250 daily log returns.
+
+        The size predictor (`range_pred`, hence `avg±`) is identical between the
+        two; they differ only in the M multipliers that produce ext±. So the
+        **range-prediction stats** (MAE, MAPE, bias, correlation, in-band rate)
+        are essentially identical between variants — what differs is the
+        **ext+/ext− touch rates**.
+
+        Toggle the variant for the per-methodology view, or scroll to the bottom
+        for a **side-by-side comparison** of both.
 
         **Hit-rate metrics:**
-        - **In-band rate** — % of days where the entire daily range stayed inside `avg±`.
-          DT15 is calibrated so this should hover near ~68% (1σ band) over a long enough
-          sample. Persistently lower = `range_pred` is under-estimating.
-        - **Touched ext+/ext− rate** — % of days where price reached the extension targets.
-          `M_dn = 2.97` > `M_up = 2.27` reflects the index downside fat-tail; expect ext−
-          touches to be slightly more frequent than ext+.
+        - **In-band rate** — % of days where H≤avg+ AND L≥avg−. Should hover
+          near ~68% (1σ band) over a long enough sample.
+        - **Touched ext+/ext− rate** — % of days where price reached the
+          extension targets. Calibration target was ~5%/5% in the original
+          study; Enhancement B specifically aims to keep this ratio more stable
+          across regimes by widening on trending markets.
 
-        **Range-prediction quality:**
-        - **MAE** (mean absolute error, in points) — how far off the range estimate is on average.
-        - **MAPE** (% error) — same as MAE but normalised.
-        - **Bias** — mean signed error (`actual − predicted`). Positive = model under-predicts,
-          negative = over-predicts. Should be close to 0 over a stable regime.
-        - **Correlation** — Pearson ρ of predicted vs actual range. >0.5 = useful;
-          <0.3 = the model is mostly capturing the regime mean, not day-to-day variation.
+        **Range-prediction quality (variant-independent):**
+        - **MAE** — mean absolute error in points
+        - **MAPE** — same as %
+        - **Bias** — `mean(actual − predicted)` (positive = under-predicting)
+        - **Correlation** — Pearson ρ pred vs actual
 
-        **Bootstrap historical data.** Tracking from live forward-only data takes weeks.
-        Use the "Backfill last N days" tool below to reconstruct what the model would have
-        predicted on each of the last N days using only the data available at the time —
-        instantly seeds the backtest.
+        **Bootstrap.** Use the Backfill tool below to reconstruct what each
+        methodology *would have predicted* for each of the last N days. Run it
+        for **both variants** to seed the comparison.
         """
     )
 
+# ---- Variant toggle ----
+variant = dt15_variant_picker()
+st.caption(f"Showing: **{DT15_VARIANT_LABELS[variant]}**")
+
 # ---- Backfill control ----
 with st.expander("Bootstrap / backfill"):
-    n_days = st.slider("Backfill last N trading days", 5, 90, 30, key="dt15_bf_days")
-    if st.button("Run backfill"):
-        with st.spinner(f"Reconstructing {n_days} days of DT15 predictions…"):
-            n = dt15_storage.backfill_from_history(days=n_days)
-        st.success(f"Backfilled {n} historical predictions and settled them.")
-        st.rerun()
+    n_days = st.slider("Backfill last N trading days", 5, 90, 60, key="dt15_bf_days")
+    bf_col1, bf_col2 = st.columns(2)
+    with bf_col1:
+        if st.button(f"Run backfill · **{DT15_VARIANT_LABELS[variant]}**"):
+            with st.spinner(f"Reconstructing {n_days} days for {variant}…"):
+                n = dt15_storage.backfill_from_history(days=n_days, variant=variant)
+            st.success(f"Backfilled {n} historical predictions for {variant}.")
+            st.rerun()
+    with bf_col2:
+        if st.button("Run backfill · **BOTH variants**"):
+            with st.spinner(f"Reconstructing {n_days} days for both variants…"):
+                n_base = dt15_storage.backfill_from_history(days=n_days, variant="baseline")
+                n_eb = dt15_storage.backfill_from_history(days=n_days, variant="enh_b")
+            st.success(f"Backfilled baseline={n_base} and enh_b={n_eb} predictions.")
+            st.rerun()
 
-    if st.button("Re-run settlement pass"):
+    if st.button("Re-run settlement pass (all variants)"):
         n = dt15_storage.settle_pending()
         st.info(f"Settled {n} pending prediction(s).")
         st.rerun()
 
 st.divider()
 
-summary = dt15_storage.summary()
-df = dt15_storage.to_dataframe()
+summary = dt15_storage.summary(variant=variant)
+df = dt15_storage.to_dataframe(variant=variant)
 
 if summary.n_total == 0:
     st.info(
-        "No predictions recorded yet. Open the **DT15 levels** page to record today's "
-        "prediction, or use the Backfill tool above to bootstrap history."
+        f"No **{variant}** predictions yet. Use the Backfill tool above to seed "
+        f"history, or open the **DT15 levels** page to record today's prediction."
     )
     st.stop()
 
@@ -79,13 +104,12 @@ c1.metric(
     "Predictions recorded",
     f"{summary.n_total}",
     delta=f"{summary.n_settled} settled",
-    help="Total rows in the DT15 prediction table. Settled = outcome filled in.",
+    help="Total rows for this variant. Settled = outcome filled.",
 )
 c2.metric(
     "In-band hit rate",
     f"{summary.in_band_rate*100:.1f}%" if summary.in_band_rate is not None else "—",
-    help="Share of settled days where the entire H–L stayed inside avg±. "
-    "Calibration target: ~68% over a stable regime.",
+    help="Share of days where H–L stayed inside avg±. Calibration target ~68%.",
 )
 c3.metric(
     "Range MAE",
@@ -95,15 +119,14 @@ c3.metric(
 c4.metric(
     "Range MAPE",
     f"{summary.range_mape*100:.1f}%" if summary.range_mape is not None else "—",
-    help="Mean absolute percentage error of the range prediction.",
+    help="Mean absolute percentage error.",
 )
 
 c5, c6, c7, c8 = st.columns(4)
 c5.metric(
     "Bias",
     f"{summary.range_bias:+.2f}" if summary.range_bias is not None else "—",
-    help="Mean signed error (actual − predicted). Positive = under-predicting; "
-    "negative = over-predicting. Should be ~0 in a stable regime.",
+    help="Mean signed error (actual − predicted). Positive = under-predicting.",
 )
 c6.metric(
     "Correlation (pred vs actual)",
@@ -113,13 +136,12 @@ c6.metric(
 c7.metric(
     "Touched ext+",
     f"{summary.touched_ext_plus_rate*100:.1f}%" if summary.touched_ext_plus_rate is not None else "—",
-    help="Share of settled days where High >= ext+. Expected to be small (~5-10%).",
+    help="Share of days where High ≥ ext+. Target ~5–10%.",
 )
 c8.metric(
     "Touched ext−",
     f"{summary.touched_ext_minus_rate*100:.1f}%" if summary.touched_ext_minus_rate is not None else "—",
-    help="Share of settled days where Low <= ext−. Typically slightly higher than ext+ "
-    "due to M_dn > M_up.",
+    help="Share of days where Low ≤ ext−.",
 )
 
 # ---- Time series chart ----
@@ -127,7 +149,7 @@ st.divider()
 settled = df.dropna(subset=["actual_range"]).sort_values("pred_date")
 
 if settled.empty:
-    st.info("No settled predictions yet. Outcomes will fill in once historical days have closed.")
+    st.info("No settled predictions yet for this variant.")
 else:
     st.markdown("### Predicted vs realised range")
     fig = go.Figure()
@@ -141,7 +163,6 @@ else:
     )
     st.plotly_chart(fig, width="stretch")
 
-    # ---- Calibration scatter + error histogram ----
     left, right = st.columns(2)
     with left:
         st.markdown("#### Calibration scatter")
@@ -178,12 +199,11 @@ else:
             )
             st.plotly_chart(hist, width="stretch")
 
-    # ---- Hit-rate breakdown ----
     st.markdown("#### Where did price end up vs the predicted band?")
     counts = {
         "Above ext+": int(settled["touched_ext_plus"].fillna(0).sum()),
         "Above avg+ (not ext)": int(
-            (settled["high_above_avg_plus"].fillna(0).sum())
+            settled["high_above_avg_plus"].fillna(0).sum()
             - settled["touched_ext_plus"].fillna(0).sum()
         ),
         "Inside avg band": int(settled["inside_avg_band"].fillna(0).sum()),
@@ -206,24 +226,90 @@ else:
         height=320, template="plotly_dark", margin=dict(l=10, r=10, t=10, b=10),
         yaxis_title="Days", showlegend=False,
     )
-    # Note that the "above avg+" / "below avg-" bars include their respective ext touches
-    # too — the breakdown above subtracts them out for a clean partition.
     st.plotly_chart(bars, width="stretch")
     st.caption(
-        "Note: a single day can both 'go above avg+' and 'go below avg−' — the above bars "
-        "count days by their *furthest-touched* level on each side; pure inside-band "
-        "days have neither boundary breached."
+        "Note: a single day can both 'go above avg+' and 'go below avg−' — the bars "
+        "count days by their *furthest-touched* level on each side."
+    )
+
+st.divider()
+
+# ---- Side-by-side comparison ----
+st.markdown("### Head-to-head comparison · baseline vs Enhancement B")
+
+s_baseline = dt15_storage.summary(variant="baseline")
+s_enh = dt15_storage.summary(variant="enh_b")
+
+if s_baseline.n_settled == 0 and s_enh.n_settled == 0:
+    st.info(
+        "No settled predictions for either variant yet. Run the **Backfill · BOTH variants** "
+        "button above to seed both methodologies and unlock this comparison."
+    )
+else:
+    def _row(label, b_val, e_val, fmt="{:.2f}"):
+        bv = fmt.format(b_val) if b_val is not None else "—"
+        ev = fmt.format(e_val) if e_val is not None else "—"
+        return {"Metric": label, "Baseline": bv, "Enhancement B": ev}
+
+    rows = [
+        _row("Predictions settled", s_baseline.n_settled, s_enh.n_settled, "{:d}"),
+        _row("In-band hit rate", s_baseline.in_band_rate, s_enh.in_band_rate, "{:.1%}"),
+        _row("Touched ext+ rate", s_baseline.touched_ext_plus_rate,
+             s_enh.touched_ext_plus_rate, "{:.1%}"),
+        _row("Touched ext− rate", s_baseline.touched_ext_minus_rate,
+             s_enh.touched_ext_minus_rate, "{:.1%}"),
+        _row("Range MAE (pts)", s_baseline.range_mae, s_enh.range_mae, "{:.2f}"),
+        _row("Range MAPE", s_baseline.range_mape, s_enh.range_mape, "{:.1%}"),
+        _row("Range bias (pts)", s_baseline.range_bias, s_enh.range_bias, "{:+.2f}"),
+        _row("Range correlation", s_baseline.range_correlation,
+             s_enh.range_correlation, "{:.2f}"),
+    ]
+    st.dataframe(rows, width="stretch", hide_index=True)
+
+    # Comparison ext-touch chart
+    if s_baseline.touched_ext_plus_rate is not None and s_enh.touched_ext_plus_rate is not None:
+        comp = go.Figure()
+        comp.add_bar(
+            x=["ext+", "ext−"],
+            y=[s_baseline.touched_ext_plus_rate * 100,
+               s_baseline.touched_ext_minus_rate * 100 if s_baseline.touched_ext_minus_rate else 0],
+            name="Baseline",
+            marker=dict(color="#FFD166"),
+        )
+        comp.add_bar(
+            x=["ext+", "ext−"],
+            y=[s_enh.touched_ext_plus_rate * 100,
+               s_enh.touched_ext_minus_rate * 100 if s_enh.touched_ext_minus_rate else 0],
+            name="Enhancement B",
+            marker=dict(color="#00C49A"),
+        )
+        comp.add_hline(y=5, line_color="#888", line_dash="dot",
+                       annotation_text="calibration target ~5%")
+        comp.update_layout(
+            height=320, template="plotly_dark", barmode="group",
+            margin=dict(l=10, r=10, t=10, b=10),
+            yaxis_title="Touch rate (%)",
+            title="Extension touch-rate comparison",
+        )
+        st.plotly_chart(comp, width="stretch")
+
+    st.caption(
+        "Both methodologies share the same range_pred (size predictor), so MAE/MAPE/bias/"
+        "correlation will be identical. The meaningful differences are in the **ext+/ext− "
+        "touch rates** — Enhancement B aims for ~5% on each side regardless of regime by "
+        "widening dynamically when path indicators warn of trending markets."
     )
 
 st.divider()
 st.markdown("### Recent predictions")
 
 show_cols = [
-    "pred_date", "anchor", "anchor_source", "rm5", "range_vix", "range_pred", "pred_source",
+    "pred_date", "variant", "anchor", "rm5", "range_vix", "range_pred", "pred_source",
+    "m_up_used", "m_dn_used", "r1_normalized",
     "actual_range", "range_error", "inside_avg_band",
     "touched_ext_plus", "touched_ext_minus",
 ]
-table = df[show_cols].head(60).copy()
+table = df[[c for c in show_cols if c in df.columns]].head(60).copy()
 st.dataframe(
     table,
     width="stretch",
@@ -233,7 +319,13 @@ st.dataframe(
         "rm5": st.column_config.NumberColumn(format="%.2f"),
         "range_vix": st.column_config.NumberColumn(format="%.2f"),
         "range_pred": st.column_config.NumberColumn(format="%.2f"),
+        "m_up_used": st.column_config.NumberColumn(format="%.3f"),
+        "m_dn_used": st.column_config.NumberColumn(format="%.3f"),
+        "r1_normalized": st.column_config.NumberColumn(format="%+.2f"),
         "actual_range": st.column_config.NumberColumn(format="%.2f"),
         "range_error": st.column_config.NumberColumn(format="%+.2f"),
     },
 )
+
+# Reference dt15 module so its constants (M_UP_BASELINE, M_DN_BASELINE) appear referenced
+_ = dt15.M_UP_BASELINE

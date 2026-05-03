@@ -302,6 +302,43 @@ with st.expander("**DT15 daily range (ES futures)**"):
         """
     )
 
+with st.expander("**DT15 methodologies — Baseline vs Enhancement B**"):
+    st.markdown(
+        """
+        Two methodologies are tracked side-by-side; toggle between them on the
+        **DT15 levels** and **DT15 backtest** pages.
+
+        **Baseline (locked static M).** The original DT15 spec.
+        - `M_up = 2.27`, `M_dn = 2.97` (calibrated on 2018–2022 IS for ~5%/5% breach rates)
+        - Constants do NOT vary with market state
+        - Simple, transparent — but poorly calibrated in trending regimes (ext-touches
+          cluster on the trend side and become rare on the opposite side)
+
+        **Enhancement B (PDV-adjusted, R1-dynamic M).** Tightened static base + dynamic
+        widening from a Path-Dependent-Volatility indicator.
+        - Tightened base: `M_up_base = 1.87`, `M_dn_base = 2.57`
+        - Dynamic widening: `M_up = 1.87 · (1 + 1.59 · max(0, R1/σ_R1))`, mirror for `M_dn`
+        - **R1** is a TSPL-weighted sum of the past 250 daily log returns
+          (Guyon-Lekeufack VIX-style kernel: α=1.06, δ=0.020, σ_R1=0.00142)
+        - **Intuition:** when R1 is positive (recent up-trend) the upside extension widens
+          to absorb continuation; when R1 is negative (recent down-trend) the downside
+          extension widens. Symmetric and mechanical — no discretion.
+        - Calibrated 2018–2022 IS, validated 2023–2025 OOS for more stable breach rates
+          across regimes (~5%/5% target on both sides)
+
+        **Same size predictor for both.** Both methodologies use
+        `range_pred = max(RM5, 0.60 · range_vix)`, so they produce **identical** avg± bands
+        and identical range MAE/MAPE/bias/correlation. They differ only in the **M
+        multipliers that produce ext±**, so the meaningful comparison is in the
+        ext+/ext− touch rates — see the Backtest page's head-to-head table.
+
+        **Which to use.** Enhancement B is the recommended default for breach-rate
+        calibration. Baseline is useful as a sanity check, and is the simpler model to
+        explain to anyone unfamiliar with PDV. Toggle between them and look at your own
+        backtest to decide.
+        """
+    )
+
 with st.expander("**DT15 Backtest — measuring the model**"):
     st.markdown(
         """
