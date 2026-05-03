@@ -47,16 +47,48 @@ def _job() -> None:
         except Exception as e:  # noqa: BLE001
             log.exception("Snapshot FAIL for %s: %s", tk, e)
 
-    # Record today's DT15 prediction for BOTH methodologies and settle any
-    # prior unsettled rows. Storing both side-by-side enables the
-    # head-to-head backtest comparison in the dashboard.
+    # Record today's DT15 prediction for BOTH methodologies, with a staleness
+    # check that detects when yfinance hasn't yet published the new session's
+    # bar (returns the same data as the prior run). On staleness we log a
+    # WARNING and skip the persist rather than overwriting good data with a
+    # duplicate. Then settle any prior unsettled rows.
     try:
+        from sqlalchemy import select
+
         from optionsminer.analytics.dt15 import VARIANTS, compute_live
         from optionsminer.storage import dt15_storage
+        from optionsminer.storage.db import session_scope
+        from optionsminer.storage.models import DT15Prediction
 
         for variant in VARIANTS:
             try:
                 lv = compute_live(variant=variant)
+
+                # Staleness check: did yfinance return the same bar as the
+                # most-recent prior prediction for this variant?
+                with session_scope() as sess:
+                    prior = sess.scalars(
+                        select(DT15Prediction)
+                        .where(DT15Prediction.variant == variant)
+                        .order_by(DT15Prediction.pred_date.desc())
+                        .limit(1)
+                    ).first()
+                    is_stale = (
+                        prior is not None
+                        and prior.pred_date == lv.asof_date
+                        and abs(prior.today_open_yf - lv.today_open_yf) < 0.01
+                    )
+                if is_stale:
+                    log.warning(
+                        "DT15 STALE ANCHOR (%s): yfinance returned the same bar "
+                        "as the prior recorded prediction (pred_date=%s, "
+                        "today_open_yf=%.2f). yfinance has not yet rolled the "
+                        "new session's bar. Skipping persist to avoid "
+                        "overwriting good data.",
+                        variant, lv.asof_date, lv.today_open_yf,
+                    )
+                    continue
+
                 dt15_storage.record_prediction(lv)
                 log.info("DT15 (%s): recorded prediction for %s", variant, lv.asof_date)
             except Exception as e:  # noqa: BLE001

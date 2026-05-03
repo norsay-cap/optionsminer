@@ -131,10 +131,44 @@ except Exception as e:  # noqa: BLE001
 # variant. The override version is only persisted when the user clicks
 # "Lock prediction" below.
 if not use_override:
-    try:
-        dt15_storage.record_prediction(lv)
-    except Exception as e:  # noqa: BLE001
-        st.warning(f"Could not persist today's prediction: {e}")
+    # Staleness check: did yfinance return the same bar as the most-recent
+    # prior persisted prediction for this variant? If so, yfinance hasn't
+    # rolled forward yet — warn the user and SKIP the persist (so we don't
+    # overwrite useful data with a duplicate row).
+    from sqlalchemy import select
+
+    from optionsminer.storage.db import session_scope
+    from optionsminer.storage.models import DT15Prediction
+
+    with session_scope() as _sess:
+        _prior = _sess.scalars(
+            select(DT15Prediction)
+            .where(DT15Prediction.variant == variant)
+            .order_by(DT15Prediction.pred_date.desc())
+            .limit(1)
+        ).first()
+        _is_stale = (
+            _prior is not None
+            and _prior.pred_date == lv.asof_date
+            and abs(_prior.today_open_yf - lv.today_open_yf) < 0.01
+        )
+
+    if _is_stale:
+        st.warning(
+            f"⚠️ **Stale anchor detected.** yfinance returned the same bar as the "
+            f"most-recent prior prediction for **{variant}** "
+            f"(date={lv.asof_date}, today_open_yf={lv.today_open_yf:,.2f}). "
+            f"yfinance hasn't yet rolled forward to the new session's bar. "
+            f"The levels above use this stale anchor — **for actionable levels, "
+            f"check 'Override anchor' above and paste in the current ES price** "
+            f"from your broker. The auto-persist has been skipped to avoid "
+            f"overwriting good data."
+        )
+    else:
+        try:
+            dt15_storage.record_prediction(lv)
+        except Exception as e:  # noqa: BLE001
+            st.warning(f"Could not persist today's prediction: {e}")
 try:
     n_settled = dt15_storage.settle_pending()
     if n_settled > 0:
