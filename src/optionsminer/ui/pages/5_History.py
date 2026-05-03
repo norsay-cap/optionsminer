@@ -12,27 +12,23 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from sqlalchemy import select
 
-from optionsminer.config import settings
 from optionsminer.storage.db import session_scope
 from optionsminer.storage.models import DerivedMetrics, Snapshot
-from optionsminer.ui.common import page_header
+from optionsminer.ui.common import page_header, ticker_selectbox
 
 st.set_page_config(page_title="History", layout="wide")
 st.sidebar.markdown("### Snapshot")
 
-# Share the ticker selection with the rest of the dashboard via session state.
-default_ticker = "^SPX" if "^SPX" in settings.tickers else settings.tickers[0]
-if "om_ticker" not in st.session_state:
-    st.session_state["om_ticker"] = default_ticker
-elif st.session_state["om_ticker"] not in settings.tickers:
-    st.session_state["om_ticker"] = default_ticker
+# Same persistent-ticker helper used by the rest of the dashboard.
+ticker = ticker_selectbox("Ticker")
 
-ticker = st.sidebar.selectbox(
-    "Ticker",
-    options=settings.tickers,
-    key="om_ticker",
+# Slider: persist via a non-widget key so it survives navigation.
+if "_om_history_limit" not in st.session_state:
+    st.session_state["_om_history_limit"] = 100
+limit = st.sidebar.slider(
+    "Last N snapshots", 5, 500, st.session_state["_om_history_limit"]
 )
-limit = st.sidebar.slider("Last N snapshots", 5, 500, 100, key="om_history_limit")
+st.session_state["_om_history_limit"] = limit
 
 page_header(f"{ticker} · history", f"Last {limit} snapshots")
 

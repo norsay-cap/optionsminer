@@ -24,6 +24,11 @@ st.caption(
     "Predicted intraday range for ES=F based on a blend of recent realised range and "
     "the VIX-implied move. Four anchored levels project the expected high/low band."
 )
+st.info(
+    "**Note:** the avg± / ext± bands are projected **symmetrically around the open**. "
+    "On trending days, expect the actual H/L to bias in the direction of the trend — "
+    "the band is a width estimate, not a directional forecast."
+)
 
 with st.expander("**How to read this page**"):
     st.markdown(
@@ -68,6 +73,15 @@ with st.expander("**How to read this page**"):
           than recent average. Combine with VRP and gamma regime for confluence.
         - **VIX-implied range >> RM5** = market is pricing in much more movement than has
           materialised — the levels lean on the wider VIX side via the blend.
+
+        **Important — these bands are open-anchored, not drift-aware.** The avg± /
+        ext± levels are projected symmetrically around the open, so on a strongly
+        trending day price will systematically extend further on the trend side and
+        less on the opposite side, even when the *total* range is correctly predicted.
+        Treat the bands as a width estimate centred on the open; expect the actual
+        H/L to **bias in the direction of the trend** during a directional session.
+        See the **DT15 Backtest** page — the in-band hit rate is sensitive to drift
+        as much as to range accuracy.
         """
     )
 

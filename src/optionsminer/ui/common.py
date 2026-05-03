@@ -17,28 +17,46 @@ def page_header(title: str, subtitle: str | None = None) -> None:
         st.caption(subtitle)
 
 
+# Persistent state lives under non-widget keys so multipage navigation
+# doesn't lose them — Streamlit can drop widget-key-tied state on certain
+# page transitions, but plain session_state keys we manage ourselves
+# survive consistently.
+_TICKER_KEY = "_om_ticker_persistent"
+
+
+def _persistent_ticker() -> str:
+    """Read-or-init the persistent ticker, validating against current config."""
+    default_ticker = "^SPX" if "^SPX" in settings.tickers else settings.tickers[0]
+    if _TICKER_KEY not in st.session_state:
+        st.session_state[_TICKER_KEY] = default_ticker
+    if st.session_state[_TICKER_KEY] not in settings.tickers:
+        st.session_state[_TICKER_KEY] = default_ticker
+    return st.session_state[_TICKER_KEY]
+
+
+def ticker_selectbox(label: str = "Ticker") -> str:
+    """Render the ticker dropdown anywhere with the same persisted state.
+
+    Used by sidebar_picker AND the History page so all pages stay in sync.
+    """
+    current = _persistent_ticker()
+    current_idx = settings.tickers.index(current)
+    chosen = st.sidebar.selectbox(label, options=settings.tickers, index=current_idx)
+    # Manually write back to the persistent key (no key= on the widget,
+    # so Streamlit doesn't try to manage it — we own the persistence).
+    st.session_state[_TICKER_KEY] = chosen
+    return chosen
+
+
 def sidebar_picker() -> tuple[str, Snapshot | None]:
     """Render ticker + snapshot pickers. Returns (ticker, chosen Snapshot).
 
-    Selections persist across page navigation via st.session_state. They reset
-    on browser tab close / hard refresh — typical desired UX. The ticker key
-    `om_ticker` is shared with the History page so the choice carries over.
+    Selections persist across all pages within the same browser session via
+    non-widget session_state keys. State resets on browser tab close /
+    hard refresh — the typical desired UX.
     """
     st.sidebar.markdown("### Snapshot")
-
-    # Hard-prefer SPX as the initial default regardless of env-var order.
-    default_ticker = "^SPX" if "^SPX" in settings.tickers else settings.tickers[0]
-    if "om_ticker" not in st.session_state:
-        st.session_state["om_ticker"] = default_ticker
-    elif st.session_state["om_ticker"] not in settings.tickers:
-        # Configured tickers changed — reset to default
-        st.session_state["om_ticker"] = default_ticker
-
-    ticker = st.sidebar.selectbox(
-        "Ticker",
-        options=settings.tickers,
-        key="om_ticker",
-    )
+    ticker = ticker_selectbox("Ticker")
 
     snaps = list_snapshots(ticker, limit=200)
     if not snaps:
@@ -47,19 +65,22 @@ def sidebar_picker() -> tuple[str, Snapshot | None]:
 
     labels = [f"{s.snapshot_ts:%Y-%m-%d %H:%M}  ·  spot {s.spot:.2f}" for s in snaps]
 
-    # Per-ticker key so the date selection survives navigation but doesn't
-    # collide across tickers (different snapshot lists, different lengths).
-    # Clamp if a prune dropped the previously selected snapshot.
-    snap_key = f"om_snap_{ticker}"
-    if snap_key in st.session_state and st.session_state[snap_key] >= len(snaps):
+    # Per-ticker persistent key for snapshot date — survives navigation but
+    # doesn't collide across tickers (different snapshot list lengths).
+    snap_key = f"_om_snap_{ticker}"
+    if snap_key not in st.session_state:
+        st.session_state[snap_key] = 0
+    # Clamp if a prune dropped the previously selected snapshot
+    if st.session_state[snap_key] >= len(snaps):
         st.session_state[snap_key] = 0
 
     idx = st.sidebar.selectbox(
         "Date",
         options=list(range(len(labels))),
         format_func=lambda i: labels[i],
-        key=snap_key,
+        index=st.session_state[snap_key],
     )
+    st.session_state[snap_key] = idx
     return ticker, snaps[idx]
 
 
@@ -103,6 +124,7 @@ def fmt_strike(x: float | None) -> str:
 __all__ = [
     "page_header",
     "sidebar_picker",
+    "ticker_selectbox",
     "get_metrics",
     "cached_chain",
     "fmt_money",
