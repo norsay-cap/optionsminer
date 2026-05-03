@@ -281,8 +281,11 @@ def backfill_from_history(days: int = 60, variant: str = "baseline") -> int:
         es_period = "3y"
         vix_period = "3y"
     else:
-        es_period = f"{days + 30}d"
-        vix_period = f"{days + 30}d"
+        # Baseline only needs 7 prior days per row, but the slider can ask for
+        # up to 250 trading days = ~365 calendar days of backfill, plus a small
+        # cushion. Pull 2y to comfortably cover any realistic slider value.
+        es_period = "2y"
+        vix_period = "2y"
     es = fetch_daily_bars("ES=F", period=es_period)
     vix = fetch_daily_bars("^VIX", period=vix_period)
 

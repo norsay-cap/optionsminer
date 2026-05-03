@@ -63,7 +63,17 @@ st.caption(f"Showing: **{DT15_VARIANT_LABELS[variant]}**")
 
 # ---- Backfill control ----
 with st.expander("Bootstrap / backfill"):
-    n_days = st.slider("Backfill last N trading days", 5, 90, 60, key="dt15_bf_days")
+    n_days = st.slider(
+        "Backfill last N trading days",
+        min_value=5,
+        max_value=250,
+        value=60,
+        step=5,
+        key="dt15_bf_days",
+        help="Max ~250 trading days = ~1y. Limited by the 3y yfinance pull "
+        "minus the 250-day TSPL kernel + 252-day rolling-σ cushion needed "
+        "before the oldest backfill day.",
+    )
     bf_col1, bf_col2 = st.columns(2)
     with bf_col1:
         if st.button(f"Run backfill · **{DT15_VARIANT_LABELS[variant]}**"):
