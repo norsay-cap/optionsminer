@@ -65,7 +65,8 @@ Two valid paths in the Coolify dashboard:
    OPTIONSMINER_RISK_FREE_RATE=0.045
    OPTIONSMINER_TICKERS=["SPY","^SPX"]
    OPTIONSMINER_ENABLE_SCHEDULER=true
-   OPTIONSMINER_SCHEDULE_CRON=15 21 * * 1-5
+   OPTIONSMINER_SCHEDULE_TZ=America/New_York
+   OPTIONSMINER_SCHEDULE_CRON=0 19 * * 1-5
    ```
 7. Deploy. Healthcheck (`GET /_stcore/health`) is already built into the image.
 
@@ -75,7 +76,7 @@ Use `compose.yaml` as-is. Coolify reads it directly and provisions the named vol
 
 ### Snapshot scheduling
 
-With `OPTIONSMINER_ENABLE_SCHEDULER=true`, the container runs an in-process APScheduler that calls `optionsminer-snapshot` on the configured cron. Default is `15 21 * * 1-5` UTC = ~4:15 PM ET on US trading days, after the equity options close.
+With `OPTIONSMINER_ENABLE_SCHEDULER=true`, the container runs an in-process APScheduler that calls `optionsminer-snapshot` and records today's DT15 prediction on the configured cron. Default is `0 19 * * 1-5` in `America/New_York` = **7 PM ET on US trading days**. Reasoning: yfinance options chains are stable from ~4:30 PM ET, and DT15 needs the 6 PM ET ETH session open as the anchor (1-hour buffer for yfinance to publish that value). The `America/New_York` timezone means DST is handled automatically — the run time stays at 7 PM ET year-round.
 
 If you'd rather run snapshots externally, leave the scheduler off and use Coolify's scheduled-tasks feature, or `docker exec` `optionsminer-snapshot` from a host cron.
 

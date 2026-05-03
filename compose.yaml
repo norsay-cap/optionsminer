@@ -29,10 +29,14 @@ services:
       OPTIONSMINER_TICKERS: '["^SPX","SPY"]'
       OPTIONSMINER_SNAPSHOT_MAX_DTE: "180"
 
-      # In-process scheduler — set true to run a daily EOD snapshot
-      # inside the container at 21:15 UTC (~ 4:15 PM ET) on weekdays
+      # In-process scheduler — runs once per weekday in the configured timezone.
+      # 7 PM ET handles both jobs: yfinance options chains are stable from
+      # ~4:30 PM ET, and DT15 needs the 6 PM ET ETH session open as the anchor
+      # (1-hour buffer to make sure yfinance has published it).
+      # Timezone is America/New_York so DST is handled automatically.
       OPTIONSMINER_ENABLE_SCHEDULER: "true"
-      OPTIONSMINER_SCHEDULE_CRON: "15 21 * * 1-5"
+      OPTIONSMINER_SCHEDULE_TZ: "America/New_York"
+      OPTIONSMINER_SCHEDULE_CRON: "0 19 * * 1-5"
     volumes:
       - optionsminer_data:/app/data
     healthcheck:

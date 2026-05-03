@@ -1,4 +1,4 @@
-"""Optional in-process scheduler: takes a daily EOD snapshot inside the container.
+"""Optional in-process scheduler: takes a daily snapshot inside the container.
 
 Activated by setting OPTIONSMINER_ENABLE_SCHEDULER=true. By default the
 scheduler is OFF — Coolify can drive snapshots externally if preferred.
@@ -7,8 +7,13 @@ When ON, the entrypoint launches both the Streamlit server *and* this
 scheduler in the same container. APScheduler's BackgroundScheduler runs the
 job in a worker thread so it doesn't block the UI.
 
-Default schedule: 21:15 UTC daily (~ 4:15 PM ET / 3:15 PM CT) — after the
-US equity options market close.
+Default schedule: 19:00 America/New_York daily Mon-Fri = 7 PM ET. Reasoning:
+- yfinance options chains are stable from ~4:30 PM ET, so 7 PM is fine for
+  the SPX/SPY snapshot.
+- DT15 predictions need today's 6 PM ET ETH session open as the anchor;
+  running at 7 PM gives yfinance a 1-hour buffer to publish that value.
+- Using `America/New_York` (not UTC) means DST is handled — the run time
+  stays at 7 PM ET year-round.
 """
 
 from __future__ import annotations
@@ -62,12 +67,13 @@ def start() -> BackgroundScheduler:
     """Start the scheduler in the current process. Idempotent for one process."""
     init_db()
 
-    schedule = os.environ.get("OPTIONSMINER_SCHEDULE_CRON", "15 21 * * 1-5")
-    log.info("Scheduling daily snapshot at cron='%s' UTC", schedule)
-    scheduler = BackgroundScheduler(timezone="UTC")
+    tz = os.environ.get("OPTIONSMINER_SCHEDULE_TZ", "America/New_York")
+    schedule = os.environ.get("OPTIONSMINER_SCHEDULE_CRON", "0 19 * * 1-5")
+    log.info("Scheduling daily snapshot at cron='%s' tz='%s'", schedule, tz)
+    scheduler = BackgroundScheduler(timezone=tz)
     scheduler.add_job(
         _job,
-        trigger=CronTrigger.from_crontab(schedule, timezone="UTC"),
+        trigger=CronTrigger.from_crontab(schedule, timezone=tz),
         id="daily_snapshot",
         replace_existing=True,
         misfire_grace_time=3600,
