@@ -70,11 +70,35 @@ def _migrate_dt15_to_variant_pk() -> None:
     )
 
 
+def _migrate_dt15_add_sigma_r1_cols() -> None:
+    """Add sigma_r1_used + sigma_r1_source columns if missing (v2 schema).
+
+    Safe SQLite ALTER (no PK change). Old rows get NULL for the new columns —
+    they used the locked σ_R1=0.00142, which the dashboard handles when
+    sigma_r1_source IS NULL. Backfilling overwrites those rows with the new
+    rolling σ_R1.
+    """
+    insp = inspect(engine)
+    if "dt15_predictions" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("dt15_predictions")}
+    with engine.begin() as conn:
+        if "sigma_r1_used" not in cols:
+            conn.exec_driver_sql("ALTER TABLE dt15_predictions ADD COLUMN sigma_r1_used FLOAT")
+            log.info("Added sigma_r1_used column to dt15_predictions")
+        if "sigma_r1_source" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE dt15_predictions ADD COLUMN sigma_r1_source VARCHAR(16)"
+            )
+            log.info("Added sigma_r1_source column to dt15_predictions")
+
+
 def init_db() -> None:
     """Create all tables. Idempotent. Runs in-place migrations as needed."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     _migrate_dt15_to_variant_pk()
     Base.metadata.create_all(engine)
+    _migrate_dt15_add_sigma_r1_cols()  # after create_all so first install is no-op
 
 
 @contextmanager

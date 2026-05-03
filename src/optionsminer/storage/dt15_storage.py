@@ -71,6 +71,8 @@ def record_prediction(levels: DT15Levels) -> DT15Prediction:
                 m_dn_used=levels.m_dn_used,
                 r1=levels.r1,
                 r1_normalized=levels.r1_normalized,
+                sigma_r1_used=levels.sigma_r1_used,
+                sigma_r1_source=levels.sigma_r1_source,
                 avg_plus=levels.avg_plus,
                 avg_minus=levels.avg_minus,
                 ext_plus=levels.ext_plus,
@@ -92,6 +94,8 @@ def record_prediction(levels: DT15Levels) -> DT15Prediction:
             row.m_dn_used = levels.m_dn_used
             row.r1 = levels.r1
             row.r1_normalized = levels.r1_normalized
+            row.sigma_r1_used = levels.sigma_r1_used
+            row.sigma_r1_source = levels.sigma_r1_source
             row.avg_plus = levels.avg_plus
             row.avg_minus = levels.avg_minus
             row.ext_plus = levels.ext_plus
@@ -234,6 +238,8 @@ def to_dataframe(limit: int = 500, variant: str | None = None) -> pd.DataFrame:
             "m_dn_used": r.m_dn_used,
             "r1": r.r1,
             "r1_normalized": r.r1_normalized,
+            "sigma_r1_used": r.sigma_r1_used,
+            "sigma_r1_source": r.sigma_r1_source,
             "avg_plus": r.avg_plus,
             "avg_minus": r.avg_minus,
             "ext_plus": r.ext_plus,
@@ -265,13 +271,15 @@ def backfill_from_history(days: int = 60, variant: str = "baseline") -> int:
     """
     from optionsminer.analytics.dt15 import TSPL_NLAGS, compute_levels
 
-    # Enh-B needs 250 days of prior returns PER ROW. For N target days we need
-    # ~(N + 250 + buffer) trading days. yfinance period is in CALENDAR days
-    # (~252/365 ratio), so multiply by ~1.45. Safest: pull 2y for enh_b which
-    # gives ~504 trading days, plenty for any reasonable backfill window.
+    # Enh-B needs 250 days of prior returns PER ROW for the TSPL kernel AND
+    # 252 prior R1 values for the rolling σ_R1 estimator. For N target days
+    # we therefore need ~(N + 502 + buffer) trading days available. Pull 3y
+    # which gives ~750 trading days — plenty for any realistic backfill,
+    # AND ensures the rolling σ kicks in (not the fallback) on every
+    # backfilled row.
     if variant == "enh_b":
-        es_period = "2y"
-        vix_period = "2y"
+        es_period = "3y"
+        vix_period = "3y"
     else:
         es_period = f"{days + 30}d"
         vix_period = f"{days + 30}d"

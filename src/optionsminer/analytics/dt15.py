@@ -51,7 +51,19 @@ LAM_DN = 1.93
 TSPL_ALPHA = 1.06
 TSPL_DELTA = 0.020
 TSPL_NLAGS = 250            # ~1y of past daily returns
-SIGMA_R1 = 0.00142          # IS-calibrated std of R1, stable across regimes
+
+# σ_R1 normalisation. Original IS-calibrated value (2018–2022) was 0.00142.
+# OOS analysis (scripts/sigma_r1_stability_check.py, run 2026-05) showed
+# realised σ_R1 in 2023–2026 was ~0.67× that, AND varied with VIX regime.
+# We now compute σ_R1 as a rolling std of the past SIGMA_R1_WINDOW R1 values
+# whenever we have enough history; the fallback constant is only used during
+# the warm-up period (first ~500 days of any backfill).
+SIGMA_R1_WINDOW = 252       # 1y of past R1 values for the rolling std
+SIGMA_R1_MIN_SAMPLE = 60    # minimum sample size before we trust the rolling estimate
+SIGMA_R1_FALLBACK = 0.00142 # used only when not enough history is available
+
+# Backwards-compat alias (some external scripts still import SIGMA_R1)
+SIGMA_R1 = SIGMA_R1_FALLBACK
 
 # Backwards compat — older code paths import M_UP / M_DN as the baseline values
 M_UP = M_UP_BASELINE
@@ -82,6 +94,8 @@ class DT15Levels:
     m_dn_used: float
     r1: float | None             # None for baseline
     r1_normalized: float | None  # None for baseline
+    sigma_r1_used: float | None  # actual σ_R1 used (None for baseline)
+    sigma_r1_source: str | None  # 'rolling' or 'fallback' (None for baseline)
 
 
 def _tspl_weights(alpha: float, delta: float, n_lags: int, dt: float = 1.0 / 252) -> np.ndarray:
@@ -95,8 +109,28 @@ def _tspl_weights(alpha: float, delta: float, n_lags: int, dt: float = 1.0 / 252
 def _required_es_days(variant: str) -> int:
     """Minimum ES daily bars needed for a given variant."""
     if variant == "enh_b":
+        # We want enough history to also estimate the rolling σ_R1, ideally,
+        # but we accept less and fall back to the static σ when below the
+        # rolling threshold.
         return TSPL_NLAGS + 7
     return 7
+
+
+def _past_r1_series(log_rets: np.ndarray, weights: np.ndarray, n_window: int) -> np.ndarray:
+    """Past `n_window` R1 values BEFORE today's R1 (no look-ahead).
+
+    R1(T-i) for i=1..n_window uses returns at log_rets[n-TSPL_NLAGS-1-i : n-1-i].
+    Returns at most n_window values (less if log_rets is too short).
+    """
+    n = len(log_rets)
+    out: list[float] = []
+    for i in range(1, n_window + 1):
+        s = n - TSPL_NLAGS - 1 - i
+        e = n - 1 - i
+        if s < 0:
+            break
+        out.append(float(np.dot(weights, log_rets[s:e])))
+    return np.array(out, dtype=float)
 
 
 def compute_levels(
@@ -150,6 +184,8 @@ def compute_levels(
     # M multipliers
     r1: float | None = None
     r1_norm: float | None = None
+    sigma_r1_used: float | None = None
+    sigma_r1_source: str | None = None
     if variant == "baseline":
         m_up = M_UP_BASELINE
         m_dn = M_DN_BASELINE
@@ -163,7 +199,19 @@ def compute_levels(
             )
         w1 = _tspl_weights(TSPL_ALPHA, TSPL_DELTA, TSPL_NLAGS)[::-1]
         r1 = float(np.dot(w1, past_rets))
-        r1_norm = r1 / SIGMA_R1
+
+        # Rolling σ_R1: estimated from the past SIGMA_R1_WINDOW R1 values
+        # (excluding today). Falls back to the locked constant only when not
+        # enough history is available. See docs/dt15_methodology.md.
+        past_r1s = _past_r1_series(log_rets, w1, SIGMA_R1_WINDOW)
+        if len(past_r1s) >= SIGMA_R1_MIN_SAMPLE:
+            sigma_r1_used = float(np.std(past_r1s, ddof=1))
+            sigma_r1_source = "rolling"
+        else:
+            sigma_r1_used = SIGMA_R1_FALLBACK
+            sigma_r1_source = "fallback"
+
+        r1_norm = r1 / sigma_r1_used
         m_up = M_UP_TIGHT * (1.0 + LAM_UP * max(0.0, r1_norm))
         m_dn = M_DN_TIGHT * (1.0 + LAM_DN * max(0.0, -r1_norm))
 
@@ -188,6 +236,8 @@ def compute_levels(
         m_dn_used=m_dn,
         r1=r1,
         r1_normalized=r1_norm,
+        sigma_r1_used=sigma_r1_used,
+        sigma_r1_source=sigma_r1_source,
     )
 
 
@@ -208,8 +258,12 @@ def compute_live(
     *,
     variant: str = "enh_b",
 ) -> DT15Levels:
-    """Pull ES + VIX live and compute. Period auto-sized for the variant."""
-    es_period = "2y" if variant == "enh_b" else "30d"
+    """Pull ES + VIX live and compute. Period auto-sized for the variant.
+
+    For enh_b we pull 3y so we have ~750 trading days, enough for both the
+    250-day TSPL kernel AND the 252-day rolling σ_R1 estimator.
+    """
+    es_period = "3y" if variant == "enh_b" else "30d"
     es = fetch_daily_bars("ES=F", period=es_period)
     vix = fetch_daily_bars("^VIX", period="30d")
     return compute_levels(es, vix, today_open_override=today_open_override, variant=variant)

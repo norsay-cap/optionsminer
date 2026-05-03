@@ -159,6 +159,10 @@ class DT15Prediction(Base):
     # PDV R1 path indicator (NULL for baseline)
     r1: Mapped[float | None] = mapped_column(Float)
     r1_normalized: Mapped[float | None] = mapped_column(Float)
+    # σ_R1 actually used and where it came from. As of v2 (2026-05) this is
+    # rolling per-day; older rows have NULL and used the locked 0.00142.
+    sigma_r1_used: Mapped[float | None] = mapped_column(Float)
+    sigma_r1_source: Mapped[str | None] = mapped_column(String(16))
 
     # Predicted levels
     avg_plus: Mapped[float] = mapped_column(Float, nullable=False)

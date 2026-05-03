@@ -202,9 +202,18 @@ m_c3.metric(
 m_c4.metric(
     "R1 (σ-normalised)",
     f"{lv.r1_normalized:+.2f}σ" if lv.r1_normalized is not None else "—",
-    help="R1 divided by σ_R1 (≈0.00142). |value| > 1 means the path indicator is "
-    "more than 1 std-dev away from zero, which materially widens the relevant side.",
+    help="R1 divided by σ_R1. |value| > 1 means the path indicator is more than "
+    "1 std-dev away from zero in the current regime, which materially widens the "
+    "relevant side.",
 )
+
+if variant == "enh_b" and lv.sigma_r1_used is not None:
+    s_label = "rolling (252d)" if lv.sigma_r1_source == "rolling" else "fallback (locked)"
+    delta = f"vs locked 0.00142 ({lv.sigma_r1_used / 0.00142:.2f}×)"
+    st.caption(
+        f"σ_R1 used: **{lv.sigma_r1_used:.5f}** · source: **{s_label}** · {delta}.  "
+        f"See `docs/dt15_methodology.md` for why this is dynamic."
+    )
 
 if use_override and override_value > 0:
     st.warning(
