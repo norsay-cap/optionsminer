@@ -302,6 +302,33 @@ with st.expander("**DT15 daily range (ES futures)**"):
         """
     )
 
+with st.expander("**DT15 Backtest — measuring the model**"):
+    st.markdown(
+        """
+        Every DT15 prediction is recorded to the database the moment the **DT15 levels**
+        page is opened (or by the daily scheduler — whichever fires first). The next time
+        the page loads, any past-dated prediction is **settled** against the actual ES
+        daily High/Low/Close pulled from yfinance.
+
+        **Stats the Backtest page tracks:**
+
+        | Metric | What it tells you |
+        |---|---|
+        | **In-band hit rate** | % of days price stayed inside `avg±`. Calibration target ~68%. |
+        | **Touched ext+/ext− rate** | Frequency of tail-end touches. |
+        | **Range MAE / MAPE** | How far off the range estimate is on average. |
+        | **Bias** | Mean signed error — does the model systematically under- or over-predict? |
+        | **Correlation** | Pearson ρ between predicted and realised range. |
+        | **Calibration scatter** | Visual check of pred-vs-actual; perfect = points on y=x. |
+        | **Error histogram** | Distribution of `actual − predicted`; should be roughly centred and symmetric. |
+
+        **Bootstrap.** Tracking from forward-only data takes weeks. The Backtest page has a
+        **"Backfill last N days"** button that reconstructs what DT15 *would have predicted*
+        on each of the last N days (using only the data available at that time) and settles
+        them against the actual outcomes — instantly seeds the analysis.
+        """
+    )
+
 with st.expander("**Greeks (delta, gamma, vega, theta, charm, vanna)**"):
     st.markdown(
         """

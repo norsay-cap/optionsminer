@@ -41,6 +41,19 @@ def _job() -> None:
             )
         except Exception as e:  # noqa: BLE001
             log.exception("Snapshot FAIL for %s: %s", tk, e)
+
+    # Record today's DT15 prediction and settle any prior unsettled rows
+    try:
+        from optionsminer.analytics.dt15 import compute_live
+        from optionsminer.storage import dt15_storage
+
+        lv = compute_live()
+        dt15_storage.record_prediction(lv)
+        n_settled = dt15_storage.settle_pending()
+        log.info("DT15: recorded prediction for %s, settled %d prior", lv.asof_date, n_settled)
+    except Exception as e:  # noqa: BLE001
+        log.exception("DT15 scheduled record/settle FAIL: %s", e)
+
     rep = disk_guard.enforce()
     log.info("Disk: %.3f / %.0f GB (%s)", rep.used_gb, rep.cap_gb, rep.state)
 

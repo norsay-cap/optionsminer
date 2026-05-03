@@ -12,6 +12,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from optionsminer.analytics import dt15
+from optionsminer.storage import dt15_storage
+from optionsminer.storage.db import init_db
+
+init_db()
 
 st.set_page_config(page_title="DT15 levels", layout="wide")
 
@@ -97,6 +101,21 @@ except Exception as e:  # noqa: BLE001
     st.error(f"DT15 computation failed: {e}")
     st.stop()
 
+# Persistence: auto-record the yfinance-anchored prediction once per day, and
+# settle any pending older predictions while we're here. The override version
+# is only persisted when the user explicitly clicks "Lock prediction" below.
+if not use_override:
+    try:
+        dt15_storage.record_prediction(lv)
+    except Exception as e:  # noqa: BLE001
+        st.warning(f"Could not persist today's prediction: {e}")
+try:
+    n_settled = dt15_storage.settle_pending()
+    if n_settled > 0:
+        st.toast(f"Settled {n_settled} prior prediction(s)", icon="✅")
+except Exception as e:  # noqa: BLE001
+    st.warning(f"Settlement pass failed: {e}")
+
 # Headline
 anchor_label = "OVERRIDE" if lv.anchor_source == "override" else "yfinance Open (ETH 6 PM ET)"
 st.caption(
@@ -129,6 +148,16 @@ c4.metric(
            if lv.anchor_source == "override" else None),
     help="The O_t price that all four levels are projected from.",
 )
+
+if use_override and override_value > 0:
+    st.warning(
+        f"You're viewing an **override-anchored** prediction — this is NOT yet "
+        f"persisted to the backtest. Click **Lock prediction** to replace today's "
+        f"recorded prediction with this override-anchored version."
+    )
+    if st.button("🔒 Lock prediction (replaces today's record)", type="primary"):
+        dt15_storage.record_prediction(lv)
+        st.toast("Override-anchored prediction recorded.", icon="🔒")
 
 st.divider()
 

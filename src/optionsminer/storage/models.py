@@ -122,3 +122,52 @@ class UnderlyingBar(Base):
     low: Mapped[float] = mapped_column(Float, nullable=False)
     close: Mapped[float] = mapped_column(Float, nullable=False)
     volume: Mapped[int | None] = mapped_column(Integer)
+
+
+class DT15Prediction(Base):
+    """Daily DT15 range prediction + realised outcome.
+
+    One row per `pred_date`. Outcome columns are NULL until settled by the
+    next-day settlement job. Settlement also fills derived hit-flag columns
+    so dashboard queries don't need to recompute them.
+    """
+
+    __tablename__ = "dt15_predictions"
+
+    pred_date: Mapped[date] = mapped_column(Date, primary_key=True)
+
+    # Inputs as of computation
+    today_open_yf: Mapped[float] = mapped_column(Float, nullable=False)
+    today_open_used: Mapped[float] = mapped_column(Float, nullable=False)
+    anchor_source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'yfinance' or 'override'
+    prior_close: Mapped[float] = mapped_column(Float, nullable=False)
+    vix_prior_close: Mapped[float] = mapped_column(Float, nullable=False)
+    rm5: Mapped[float] = mapped_column(Float, nullable=False)
+    range_vix: Mapped[float] = mapped_column(Float, nullable=False)
+    range_pred: Mapped[float] = mapped_column(Float, nullable=False)
+    pred_source: Mapped[str] = mapped_column(String(8), nullable=False)  # 'rm5' or 'vix'
+
+    # Predicted levels
+    avg_plus: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_minus: Mapped[float] = mapped_column(Float, nullable=False)
+    ext_plus: Mapped[float] = mapped_column(Float, nullable=False)
+    ext_minus: Mapped[float] = mapped_column(Float, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # Realised outcome (NULL until settlement)
+    actual_open: Mapped[float | None] = mapped_column(Float)
+    actual_high: Mapped[float | None] = mapped_column(Float)
+    actual_low: Mapped[float | None] = mapped_column(Float)
+    actual_close: Mapped[float | None] = mapped_column(Float)
+    actual_range: Mapped[float | None] = mapped_column(Float)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    # Derived hit/error stats (filled at settlement)
+    range_error: Mapped[float | None] = mapped_column(Float)        # actual - predicted
+    range_error_pct: Mapped[float | None] = mapped_column(Float)    # error / predicted
+    inside_avg_band: Mapped[int | None] = mapped_column(Integer)    # 1 if H<=avg+ AND L>=avg-
+    high_above_avg_plus: Mapped[int | None] = mapped_column(Integer)
+    low_below_avg_minus: Mapped[int | None] = mapped_column(Integer)
+    touched_ext_plus: Mapped[int | None] = mapped_column(Integer)   # 1 if H>=ext+
+    touched_ext_minus: Mapped[int | None] = mapped_column(Integer)  # 1 if L<=ext-
