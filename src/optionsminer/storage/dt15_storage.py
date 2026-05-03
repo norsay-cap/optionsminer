@@ -127,27 +127,52 @@ def _settle_one(row: DT15Prediction, bar: pd.Series) -> None:
 
 def settle_pending(
     asof: date | None = None,
-    lookback_days: int = 60,
+    lookback_days: int | None = 60,
     variant: str | None = None,
 ) -> int:
-    """Settle every unsettled prediction whose pred_date < asof."""
+    """Settle every unsettled prediction whose pred_date < asof.
+
+    Args:
+        asof: settle predictions with pred_date < asof. Defaults to today.
+        lookback_days: only consider pending rows in the last N calendar days.
+            Pass None for unbounded (used after a large backfill so nothing is
+            missed). The daily scheduler keeps the default 60-day cap because
+            it only ever expects yesterday's row to be pending.
+        variant: optional filter by variant.
+    """
     asof = asof or date.today()
-    cutoff = asof - timedelta(days=lookback_days)
 
     with session_scope() as s:
         q = select(DT15Prediction).where(
             DT15Prediction.settled_at.is_(None),
             DT15Prediction.pred_date < asof,
-            DT15Prediction.pred_date >= cutoff,
         )
+        if lookback_days is not None:
+            cutoff = asof - timedelta(days=lookback_days)
+            q = q.where(DT15Prediction.pred_date >= cutoff)
         if variant is not None:
             q = q.where(DT15Prediction.variant == variant)
         pending = list(s.scalars(q))
         if not pending:
             return 0
 
+        # Auto-size the yfinance pull to cover the oldest pending row
+        oldest = min(p.pred_date for p in pending)
+        cal_days_needed = (asof - oldest).days + 10
+        if lookback_days is not None:
+            cal_days_needed = max(cal_days_needed, lookback_days + 5)
+        # Use a period string yfinance accepts; cap at 5y for safety
+        if cal_days_needed >= 1500:
+            es_period = "5y"
+        elif cal_days_needed >= 700:
+            es_period = "3y"
+        elif cal_days_needed >= 350:
+            es_period = "2y"
+        else:
+            es_period = f"{cal_days_needed}d"
+
         try:
-            es = fetch_daily_bars("ES=F", period=f"{lookback_days + 5}d")
+            es = fetch_daily_bars("ES=F", period=es_period)
         except Exception as e:  # noqa: BLE001
             log.warning("DT15 settlement: ES=F fetch failed: %s", e)
             return 0
@@ -316,5 +341,6 @@ def backfill_from_history(days: int = 60, variant: str = "baseline") -> int:
         record_prediction(lv)
         inserted += 1
 
-    settle_pending(variant=variant)
+    # Unbounded so all backfilled rows get settled, not just the last 60d
+    settle_pending(variant=variant, lookback_days=None)
     return inserted

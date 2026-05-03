@@ -89,8 +89,8 @@ with st.expander("Bootstrap / backfill"):
             st.success(f"Backfilled baseline={n_base} and enh_b={n_eb} predictions.")
             st.rerun()
 
-    if st.button("Re-run settlement pass (all variants)"):
-        n = dt15_storage.settle_pending()
+    if st.button("Re-run settlement pass (all variants, unbounded)"):
+        n = dt15_storage.settle_pending(lookback_days=None)
         st.info(f"Settled {n} pending prediction(s).")
         st.rerun()
 
