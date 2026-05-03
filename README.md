@@ -100,6 +100,12 @@ SQLite history grows over time. The app includes a guard that:
 
 Default cap is 150 GB. Override via `OPTIONSMINER_DISK_CAP_GB`.
 
+## Methodology reference
+
+For the DT15 daily-range estimator (R1 / TSPL kernel / dynamic M multipliers,
+parameter inventory, σ_R1 stability investigation, and the rationale for the
+rolling-σ implementation), see [`dt15_methodology.md`](dt15_methodology.md).
+
 ## Licence
 
 MIT

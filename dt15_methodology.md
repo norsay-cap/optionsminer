@@ -345,7 +345,8 @@ levels then project around the open as shown in §1.
 - **`scripts/sigma_r1_stability_check.py`** — reproduces the §5
   investigation. Re-run when you want to verify σ_R1 calibration is still
   stable.
-- **Implementation:** `src/optionsminer/analytics/dt15.py`,
-  `src/optionsminer/storage/dt15_storage.py`,
-  `src/optionsminer/ui/pages/7_DT15_Levels.py`,
-  `src/optionsminer/ui/pages/8_DT15_Backtest.py`.
+- **Implementation:** [`src/optionsminer/analytics/dt15.py`](src/optionsminer/analytics/dt15.py),
+  [`src/optionsminer/storage/dt15_storage.py`](src/optionsminer/storage/dt15_storage.py),
+  [`src/optionsminer/ui/pages/7_DT15_Levels.py`](src/optionsminer/ui/pages/7_DT15_Levels.py),
+  [`src/optionsminer/ui/pages/8_DT15_Backtest.py`](src/optionsminer/ui/pages/8_DT15_Backtest.py),
+  [`scripts/sigma_r1_stability_check.py`](scripts/sigma_r1_stability_check.py).

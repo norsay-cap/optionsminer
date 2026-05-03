@@ -246,7 +246,7 @@ if variant == "enh_b" and lv.sigma_r1_used is not None:
     delta = f"vs locked 0.00142 ({lv.sigma_r1_used / 0.00142:.2f}×)"
     st.caption(
         f"σ_R1 used: **{lv.sigma_r1_used:.5f}** · source: **{s_label}** · {delta}.  "
-        f"See `docs/dt15_methodology.md` for why this is dynamic."
+        f"See `dt15_methodology.md` in the project root for why this is dynamic."
     )
 
 if use_override and override_value > 0:
