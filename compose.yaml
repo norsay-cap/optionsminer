@@ -36,7 +36,10 @@ services:
       # Timezone is America/New_York so DST is handled automatically.
       OPTIONSMINER_ENABLE_SCHEDULER: "true"
       OPTIONSMINER_SCHEDULE_TZ: "America/New_York"
-      OPTIONSMINER_SCHEDULE_CRON: "0 19 * * 1-5"
+      # NOTE: APScheduler's day-of-week numbering is 0=Mon..6=Sun (NOT POSIX).
+      # Always use lowercase day NAMES in this expression to avoid surprises.
+      # 23:00 Sun-Thu captures the 6 PM ET ETH session opens for Mon-Fri.
+      OPTIONSMINER_SCHEDULE_CRON: "0 23 * * sun,mon,tue,wed,thu"
     volumes:
       - optionsminer_data:/app/data
     healthcheck:

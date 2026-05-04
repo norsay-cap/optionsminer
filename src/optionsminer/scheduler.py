@@ -103,11 +103,23 @@ def _job() -> None:
 
 
 def start() -> BackgroundScheduler:
-    """Start the scheduler in the current process. Idempotent for one process."""
+    """Start the scheduler in the current process. Idempotent for one process.
+
+    IMPORTANT: APScheduler's CronTrigger uses ITS OWN day-of-week numbering
+    (0=Mon, ..., 6=Sun) which differs from POSIX cron (0=Sun, ..., 6=Sat).
+    Using numeric day_of_week values is therefore a bug magnet. We use
+    explicit lowercase day NAMES in the default cron and recommend the same
+    in env-var overrides.
+
+    Default: 23:00 America/New_York on Sun-Thu. Captures the 6 PM ET ETH
+    session open of the upcoming trading day (Mon-Fri sessions).
+    """
     init_db()
 
     tz = os.environ.get("OPTIONSMINER_SCHEDULE_TZ", "America/New_York")
-    schedule = os.environ.get("OPTIONSMINER_SCHEDULE_CRON", "0 19 * * 1-5")
+    schedule = os.environ.get(
+        "OPTIONSMINER_SCHEDULE_CRON", "0 23 * * sun,mon,tue,wed,thu"
+    )
     log.info("Scheduling daily snapshot at cron='%s' tz='%s'", schedule, tz)
     scheduler = BackgroundScheduler(timezone=tz)
     scheduler.add_job(
